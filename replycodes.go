@@ -60,3 +60,7 @@ const (
 func positiveCompletionReply(code int) bool {
 	return code/100 == 2
 }
+
+func positivePreliminaryReply(code int) bool {
+	return code/100 == 1
+}
