@@ -46,14 +46,23 @@ func (pconn *persistentConn) close() {
 func (pconn *persistentConn) sendCommand(f string, args ...interface{}) (int, string, error) {
 	err := pconn.writer.PrintfLine(f, args...)
 	if err != nil {
+		pconn.broken = true
 		return 0, "", fmt.Errorf("error writing command: %s", err)
 	}
 
-	code, msg, err := pconn.reader.ReadResponse(0)
+	code, msg, err := pconn.readResponse(0)
 	if err != nil {
 		return 0, "", fmt.Errorf("error reading response: %s")
 	}
 
+	return code, msg, err
+}
+
+func (pconn *persistentConn) readResponse(expectedCode int) (int, string, error) {
+	code, msg, err := pconn.reader.ReadResponse(expectedCode)
+	if err != nil {
+		pconn.broken = true
+	}
 	return code, msg, err
 }
 
@@ -62,9 +71,9 @@ func (pconn *persistentConn) debug(f string, args ...interface{}) {
 		return
 	}
 
-	msg := fmt.Sprintf("goftp: #%d %.3f %s\n",
-		pconn.idx,
+	msg := fmt.Sprintf("goftp: %.3f #%d %s\n",
 		time.Now().Sub(pconn.t0).Seconds(),
+		pconn.idx,
 		fmt.Sprintf(f, args...),
 	)
 
@@ -88,14 +97,24 @@ func (pconn *persistentConn) fetchFeatures() error {
 		if line[0] == ' ' {
 			parts := strings.SplitN(strings.TrimSpace(line), " ", 2)
 			if len(parts) == 1 {
-				pconn.features[parts[0]] = ""
+				pconn.features[strings.ToUpper(parts[0])] = ""
 			} else if len(parts) == 2 {
-				pconn.features[parts[0]] = parts[1]
+				pconn.features[strings.ToUpper(parts[0])] = parts[1]
 			}
 		}
 	}
 
 	return nil
+}
+
+func (pconn *persistentConn) hasFeature(name string) bool {
+	_, found := pconn.features[name]
+	return found
+}
+
+func (pconn *persistentConn) hasFeatureWithArg(name, arg string) bool {
+	val, found := pconn.features[name]
+	return found && strings.ToUpper(arg) == val
 }
 
 func (pconn *persistentConn) logInConn() error {
@@ -106,6 +125,7 @@ func (pconn *persistentConn) logInConn() error {
 	pconn.debug("logging in as user %s", pconn.config.User)
 	code, msg, err := pconn.sendCommand("USER %s", pconn.config.User)
 	if err != nil {
+		pconn.broken = true
 		return err
 	}
 
@@ -124,7 +144,7 @@ func (pconn *persistentConn) logInConn() error {
 	return nil
 }
 
-// Request that the server enters passive mode and allows us to connect to it.
+// Request that the server enters passive mode, allowing us to connect to it.
 // This lets transfers work with the client behind NAT, so you almost always
 // want it. First try EPSV, then fall back to PASV.
 func (pconn *persistentConn) requestPassive() (string, error) {

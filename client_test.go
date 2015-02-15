@@ -16,15 +16,23 @@ import (
 	"time"
 )
 
+// port that the test ftp server listens on
+var ftpdPort = "2121"
+
+// second port some tests use when they want to start their
+// own ftpd (e.g. to test error handling when ftpd restarts)
+var secondFtpdPort = "2122"
+
+// startup up a test ftp server for each of these addresses
+// not sure if ::1 will works on all systems
+var ftpdAddrs = []string{"127.0.0.1", "::1"}
+
 func TestMain(m *testing.M) {
-	closer, err := startPureFTPD()
+	closer, err := startPureFTPD(ftpdAddrs, ftpdPort)
 
 	if err != nil {
 		log.Fatal(err)
 	}
-
-	// give it a bit to get started
-	time.Sleep(100 * time.Millisecond)
 
 	var ret int
 	func() {
@@ -35,14 +43,7 @@ func TestMain(m *testing.M) {
 	os.Exit(ret)
 }
 
-// port that the test ftp server listens on
-var ftpdPort = "2121"
-
-// startup up a test ftp server for each of these addresses
-// not sure if ::1 will works on all systems
-var ftpdAddrs = []string{"127.0.0.1", "::1"}
-
-func startPureFTPD() (func(), error) {
+func startPureFTPD(addrs []string, port string) (func(), error) {
 	if _, err := os.Open("client_test.go"); os.IsNotExist(err) {
 		return nil, errors.New("must run tests in goftp/ directory")
 	}
@@ -57,10 +58,10 @@ func startPureFTPD() (func(), error) {
 	}
 
 	var ftpdProcs []*os.Process
-	for _, addr := range ftpdAddrs {
+	for _, addr := range addrs {
 		ftpdProc, err := os.StartProcess(
 			"ftpd/pure-ftpd",
-			[]string{"--bind", addr + "," + ftpdPort},
+			[]string{"--bind", addr + "," + port},
 			&os.ProcAttr{
 				Env: []string{fmt.Sprintf("FTP_ANON_DIR=%s/testroot", cwd)},
 			},
@@ -79,6 +80,10 @@ func startPureFTPD() (func(), error) {
 			proc.Wait()
 		}
 	}
+
+	// give it a bit to get started
+	time.Sleep(100 * time.Millisecond)
+
 	return closer, nil
 }
 
@@ -140,6 +145,100 @@ func TestRetrieve(t *testing.T) {
 
 		if !bytes.Equal([]byte{1, 2, 3, 4}, buf.Bytes()) {
 			t.Errorf("Got %v", buf.Bytes())
+		}
+	}
+}
+
+// io.Writer tests use to simulate various exceptional cases during
+// file downloads
+type twoByter struct {
+	writes [][]byte
+	cb     func([]byte) (int, error)
+}
+
+func (tb *twoByter) Write(p []byte) (int, error) {
+	n, err := tb.cb(p)
+	if n > 0 {
+		tb.writes = append(tb.writes, p[0:n])
+	}
+	return n, err
+}
+
+// pure-ftpd supports "REST STREAM", so make sure we can resume downloads.
+// In this test we are simulating a client write error.
+func TestResumeRetrieveOnWriteError(t *testing.T) {
+	for _, addr := range ftpdAddrs {
+		c, err := Dial(fmt.Sprintf("[%s]:%s", addr, ftpdPort))
+
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		buf := new(twoByter)
+
+		buf.cb = func(p []byte) (int, error) {
+			if len(p) <= 2 {
+				return len(p), nil
+			} else {
+				return 2, errors.New("too many bytes to handle!")
+			}
+		}
+
+		err = c.Retrieve("subdir/1234.bin", buf)
+
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if !reflect.DeepEqual([][]byte{[]byte{1, 2}, []byte{3, 4}}, buf.writes) {
+			t.Errorf("Got %v", buf.writes)
+		}
+	}
+}
+
+// kill server part way through download
+func TestResumeRetrieveOnReadError(t *testing.T) {
+	closer, err := startPureFTPD(ftpdAddrs, secondFtpdPort)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// not "defer closer()" intentionally
+	defer func() {
+		closer()
+	}()
+
+	for _, addr := range ftpdAddrs {
+		c, err := Dial(fmt.Sprintf("[%s]:%s", addr, ftpdPort))
+
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		buf := new(twoByter)
+
+		buf.cb = func(p []byte) (int, error) {
+			if len(p) <= 2 {
+				return len(p), nil
+			} else {
+				// restart the ftpd server
+				closer()
+				closer, err = startPureFTPD(ftpdAddrs, secondFtpdPort)
+				if err != nil {
+					t.Fatal(err)
+				}
+				return 2, errors.New("too many bytes to handle!")
+			}
+		}
+
+		err = c.Retrieve("subdir/1234.bin", buf)
+
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if !reflect.DeepEqual([][]byte{[]byte{1, 2}, []byte{3, 4}}, buf.writes) {
+			t.Errorf("Got %v", buf.writes)
 		}
 	}
 }

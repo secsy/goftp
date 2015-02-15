@@ -10,6 +10,7 @@ import (
 	"io"
 	"net"
 	"net/textproto"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -149,7 +150,7 @@ Loop:
 // open control connection and log in if appropriate
 func (c *client) openConn(idx int) (pconn *persistentConn, err error) {
 	host := c.hosts[idx%len(c.hosts)]
-	c.debug("opening #%d to %s", idx, host)
+	c.debug("#%d dialing %s", idx, host)
 	conn, err := net.DialTimeout("tcp", host, c.config.Timeout)
 	if err != nil {
 		return nil, err
@@ -165,7 +166,7 @@ func (c *client) openConn(idx int) (pconn *persistentConn, err error) {
 		t0:          c.t0,
 	}
 
-	_, _, err = pconn.reader.ReadResponse(ReplyServiceReady)
+	_, _, err = pconn.readResponse(ReplyServiceReady)
 	if err != nil {
 		goto Error
 	}
@@ -185,10 +186,68 @@ Error:
 	return nil, err
 }
 
+// Retrieve file "path" from server and write bytes to "dest". If the
+// server supports resuming stream transfers, Retrieve will continue
+// resuming a failed download as long as it continues making progress.
 func (c *client) Retrieve(path string, dest io.Writer) error {
 	pconn, err := c.getIdleConn()
 	if err != nil {
 		return err
+	}
+
+	var (
+		size    int64
+		gotSize bool
+	)
+
+	if pconn.hasFeature("SIZE") {
+		pconn.debug("requesting SIZE %s", path)
+		code, msg, err := pconn.sendCommand("SIZE %s", path)
+		if err != nil {
+			pconn.debug("failed running SIZE: %s", err)
+			c.freeConnCh <- pconn
+			return err
+		}
+
+		if code != ReplyFileStatus {
+			pconn.debug("unexpected SIZE response: %d (%s)", code, msg)
+		} else {
+			size, err = strconv.ParseInt(msg, 10, 64)
+			if err != nil {
+				pconn.debug(`failed parsing SIZE response "%s": %s`, msg, err)
+			} else {
+				gotSize = true
+			}
+		}
+	}
+
+	c.freeConnCh <- pconn
+
+	var bytesSoFar int64
+	hasResume := pconn.hasFeatureWithArg("REST", "STREAM")
+	for {
+		n, err := c.retrieveAtOffset(path, dest, bytesSoFar)
+
+		bytesSoFar += n
+
+		if err == nil {
+			break
+		} else if n == 0 || !hasResume {
+			return err
+		}
+	}
+
+	if gotSize && bytesSoFar != size {
+		return fmt.Errorf("expected %d bytes, got %d", size, bytesSoFar)
+	}
+
+	return nil
+}
+
+func (c *client) retrieveAtOffset(path string, dest io.Writer, offset int64) (int64, error) {
+	pconn, err := c.getIdleConn()
+	if err != nil {
+		return 0, err
 	}
 
 	defer func() {
@@ -196,13 +255,26 @@ func (c *client) Retrieve(path string, dest io.Writer) error {
 	}()
 
 	if err = pconn.setType("I"); err != nil {
-		return err
+		return 0, err
+	}
+
+	if offset > 0 {
+		pconn.debug("requesting REST %d", offset)
+		code, msg, err := pconn.sendCommand("REST %d", offset)
+		if err != nil {
+			return 0, err
+		}
+
+		if code != ReplyFileActionPending {
+			pconn.debug("unexpected response to REST: %d (%s)", code, msg)
+			return 0, fmt.Errorf("failed resuming download (%s)", msg)
+		}
 	}
 
 	dc, err := pconn.openDataConn()
 	if err != nil {
 		pconn.debug("error opening data connection: %s", err)
-		return err
+		return 0, err
 	}
 
 	// to catch early returns
@@ -211,18 +283,21 @@ func (c *client) Retrieve(path string, dest io.Writer) error {
 	pconn.debug("sending RETR %s", path)
 	code, msg, err := pconn.sendCommand("RETR %s", path)
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	if !positivePreliminaryReply(code) {
-		pconn.debug("unexpected response: %d (%s)", code, msg)
-		return fmt.Errorf("unexpected response: %d (%s)", code, msg)
+		pconn.debug("unexpected response to RETR: %d (%s)", code, msg)
+		return 0, fmt.Errorf("unexpected response: %d (%s)", code, msg)
 	}
 
-	_, err = io.Copy(dest, dc)
+	n, err := io.Copy(dest, dc)
 
 	if err != nil {
-		return err
+		// not sure what state this connection is in (e.g. if we got a write
+		// error, the server might still think the transfer completed)
+		pconn.broken = true
+		return n, err
 	}
 
 	err = dc.Close()
@@ -230,18 +305,18 @@ func (c *client) Retrieve(path string, dest io.Writer) error {
 		pconn.debug("error closing data connection: %s", err)
 	}
 
-	code, msg, err = pconn.reader.ReadResponse(0)
+	code, msg, err = pconn.readResponse(0)
 	if err != nil {
 		pconn.debug("error reading response: %s", err)
-		return err
+		return n, err
 	}
 
 	if !positiveCompletionReply(code) {
-		pconn.debug("unexpected result: %d (%s)", code, msg)
-		return fmt.Errorf("unexpected result: %d (%s)", code, msg)
+		pconn.debug("unexpected response after RETR: %d (%s)", code, msg)
+		return n, fmt.Errorf("unexpected response: %d (%s)", code, msg)
 	}
 
-	return nil
+	return n, nil
 }
 
 func (c *client) NameList(path string) ([]string, error) {
@@ -293,7 +368,7 @@ func (c *client) NameList(path string) ([]string, error) {
 		pconn.debug("error closing data connection: %s", err)
 	}
 
-	code, msg, err = pconn.reader.ReadResponse(0)
+	code, msg, err = pconn.readResponse(0)
 	if err != nil {
 		pconn.debug("error reading response: %s", err)
 		return nil, err
