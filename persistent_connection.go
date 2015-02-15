@@ -28,7 +28,8 @@ type persistentConn struct {
 	// has this connection encountered an unrecoverable error
 	broken bool
 
-	// index from 1..MaxConnections (used for logging context)
+	// index of this connection (used for logging context and
+	// round-roubin host selection)
 	idx int
 
 	// map of ftp features available on server
