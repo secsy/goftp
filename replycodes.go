@@ -14,21 +14,22 @@ const (
 	ReplyFileStatusOkay            = 150 // (about to open data connection)
 
 	// positive completion replies
-	ReplyCommandOkay               = 200
-	ReplyCommandOkayNotImplemented = 202
-	ReplySystemStatus              = 211 // or system help reply
-	ReplyDirectoryStatus           = 212
-	ReplyFileStatus                = 213
-	ReplyHelpMessage               = 214
-	ReplySystemType                = 215
-	ReplyServiceReady              = 220
-	ReplyClosingControlConnection  = 221
-	ReplyDataConnectionOpen        = 225 // (no transfer in progress)
-	ReplyClosingDataConnection     = 226 // requested file action successful
-	ReplyEnteringPassiveMode       = 227
-	ReplyUserLoggedIn              = 230
-	ReplyFileActionOkay            = 250 // (completed)
-	ReplyDirCreated                = 257
+	ReplyCommandOkay                 = 200
+	ReplyCommandOkayNotImplemented   = 202
+	ReplySystemStatus                = 211 // or system help reply
+	ReplyDirectoryStatus             = 212
+	ReplyFileStatus                  = 213
+	ReplyHelpMessage                 = 214
+	ReplySystemType                  = 215
+	ReplyServiceReady                = 220
+	ReplyClosingControlConnection    = 221
+	ReplyDataConnectionOpen          = 225 // (no transfer in progress)
+	ReplyClosingDataConnection       = 226 // requested file action successful
+	ReplyEnteringPassiveMode         = 227
+	ReplyEnteringExtendedPassiveMode = 229
+	ReplyUserLoggedIn                = 230
+	ReplyFileActionOkay              = 250 // (completed)
+	ReplyDirCreated                  = 257
 
 	// positive intermediate replies
 	ReplyNeedPassword      = 331

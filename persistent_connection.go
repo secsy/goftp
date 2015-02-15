@@ -124,52 +124,102 @@ func (pconn *persistentConn) logInConn() error {
 	return nil
 }
 
-func (pconn *persistentConn) openDataConn() (net.Conn, error) {
-	pconn.debug("requesting PASV mode")
-	code, msg, err := pconn.sendCommand("PASV")
+// Request that the server enters passive mode and allows us to connect to it.
+// This lets transfers work with the client behind NAT, so you almost always
+// want it. First try EPSV, then fall back to PASV.
+func (pconn *persistentConn) requestPassive() (string, error) {
+	var (
+		startIdx   int
+		endIdx     int
+		port       int
+		remoteHost string
+	)
+
+	// Extended PaSsiVe (same idea as PASV, but works with IPv6).
+	// See http://tools.ietf.org/html/rfc2428.
+	pconn.debug("requesting EPSV")
+	code, msg, err := pconn.sendCommand("EPSV")
 	if err != nil {
-		return nil, err
+		return "", err
+	}
+
+	if code != ReplyEnteringExtendedPassiveMode {
+		pconn.debug("server doesn't support EPSV: %d (%s)", code, msg)
+		goto PASV
+	}
+
+	startIdx = strings.Index(msg, "|||")
+	endIdx = strings.LastIndex(msg, "|")
+	if startIdx == -1 || endIdx == -1 || startIdx+3 > endIdx {
+		pconn.debug("failed parsing EPSV response: %s", msg)
+		goto PASV
+	}
+
+	port, err = strconv.Atoi(msg[startIdx+3 : endIdx])
+	if err != nil {
+		pconn.debug("EPSV response didn't contain port: %s", msg)
+		goto PASV
+	}
+
+	remoteHost, _, err = net.SplitHostPort(pconn.controlConn.RemoteAddr().String())
+	if err != nil {
+		pconn.debug("failed determing remote host (?)")
+		goto PASV
+	}
+
+	return fmt.Sprintf("[%s]:%d", remoteHost, port), nil
+
+PASV:
+	pconn.debug("requesting PASV")
+	code, msg, err = pconn.sendCommand("PASV")
+	if err != nil {
+		return "", err
 	}
 
 	if code != ReplyEnteringPassiveMode {
-		return nil, fmt.Errorf("server doesn't support passive mode (%d %s)", code, msg)
+		return "", fmt.Errorf("server doesn't support PASV: %d (%s)", code, msg)
 	}
 
 	parseError := fmt.Errorf("error parsing PASV response (%s)", msg)
 
 	// "Entering Passive Mode (162,138,208,11,223,57)."
-	openParen := strings.Index(msg, "(")
-	if openParen == -1 {
-		return nil, parseError
+	startIdx = strings.Index(msg, "(")
+	endIdx = strings.LastIndex(msg, ")")
+	if startIdx == -1 || endIdx == -1 || startIdx > endIdx {
+		return "", parseError
 	}
 
-	closeParen := strings.LastIndex(msg, ")")
-	if closeParen == -1 || closeParen < openParen {
-		return nil, parseError
-	}
-
-	addrParts := strings.Split(msg[openParen+1:closeParen], ",")
+	addrParts := strings.Split(msg[startIdx+1:endIdx], ",")
 	if len(addrParts) != 6 {
-		return nil, parseError
+		return "", parseError
 	}
 
 	ip := net.ParseIP(strings.Join(addrParts[0:4], "."))
 	if ip == nil {
-		return nil, parseError
+		return "", parseError
 	}
 
-	port := 0
+	port = 0
 	for i, part := range addrParts[4:6] {
 		portOctet, err := strconv.Atoi(part)
 		if err != nil {
-			return nil, parseError
+			return "", parseError
 		}
 		port |= portOctet << (byte(1-i) * 8)
 	}
 
-	pconn.debug("opening data connection to %s:%d", ip.String(), port)
+	return fmt.Sprintf("%s:%d", ip.String(), port), nil
+}
 
-	return net.DialTimeout("tcp", fmt.Sprintf("%s:%d", ip.String(), port), pconn.config.Timeout)
+func (pconn *persistentConn) openDataConn() (net.Conn, error) {
+	host, err := pconn.requestPassive()
+	if err != nil {
+		pconn.debug("error requesting passive connection: %s", err)
+		return nil, fmt.Errorf("error requesting passive connection: %s", err)
+	}
+
+	pconn.debug("opening data connection to %s", host)
+	return net.DialTimeout("tcp", host, pconn.config.Timeout)
 }
 
 func (pconn *persistentConn) setType(t string) error {
