@@ -12,6 +12,7 @@ import (
 	"os"
 	"reflect"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 )
@@ -240,5 +241,27 @@ func TestResumeRetrieveOnReadError(t *testing.T) {
 		if !reflect.DeepEqual([][]byte{[]byte{1, 2}, []byte{3, 4}}, buf.writes) {
 			t.Errorf("Got %v", buf.writes)
 		}
+	}
+}
+
+func TestTimeoutConnect(t *testing.T) {
+	config := Config{Timeout: 100 * time.Millisecond}
+
+	c, err := DialConfig(config, fmt.Sprintf("168.254.111.222:%s", ftpdPort))
+
+	t0 := time.Now()
+	_, err = c.NameList("")
+	delta := time.Now().Sub(t0)
+
+	if err == nil || !strings.Contains(err.Error(), "timeout") {
+		t.Error("Expected a timeout error")
+	}
+
+	offBy := delta - config.Timeout
+	if offBy < 0 {
+		offBy = -offBy
+	}
+	if offBy > 50*time.Millisecond {
+		t.Errorf("Timeout of 100ms was off by %s", offBy)
 	}
 }

@@ -307,13 +307,13 @@ func (c *client) retrieveAtOffset(path string, dest io.Writer, offset int64) (in
 
 	code, msg, err = pconn.readResponse(0)
 	if err != nil {
-		pconn.debug("error reading response: %s", err)
+		pconn.debug("error reading response after RETR: %s", err)
 		return n, err
 	}
 
 	if !positiveCompletionReply(code) {
 		pconn.debug("unexpected response after RETR: %d (%s)", code, msg)
-		return n, fmt.Errorf("unexpected response: %d (%s)", code, msg)
+		return n, fmt.Errorf("unexpected response after RETR: %d (%s)", code, msg)
 	}
 
 	return n, nil
