@@ -29,7 +29,7 @@ type persistentConn struct {
 	broken bool
 
 	// index from 1..MaxConnections (used for logging context)
-	idx int32
+	idx int
 
 	// map of ftp features available on server
 	features map[string]string

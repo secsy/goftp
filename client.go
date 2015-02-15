@@ -10,7 +10,6 @@ import (
 	"io"
 	"net"
 	"net/textproto"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -24,14 +23,7 @@ type Config struct {
 	// User password. Defaults to "anonymous" if required.
 	Password string
 
-	// User account.
-	Account string
-
-	// FTP server (e.g. "ftp.example.com" or "ftp.example.com:1337"). Port will default
-	// to 21.
-	Host string
-
-	// Maximum number of FTP connections to open at once. Defaults to 10.
+	// Maximum number of FTP connections to open at once. Defaults to 5.
 	MaxConnections int32
 
 	// Timeout for opening connections and sending individual commands. Defaults to
@@ -42,19 +34,32 @@ type Config struct {
 	Logger io.Writer
 }
 
-// Construct and return a new client Conn
-func NewClient(config Config) Conn {
+// Client connection interface.
+type Conn interface {
+	Retrieve(path string, dest io.Writer) error
+	NameList(path string) ([]string, error)
+}
+
+type client struct {
+	config       Config
+	hosts        []string
+	freeConnCh   chan *persistentConn
+	numOpenConns int32
+	mu           sync.Mutex
+	t0           time.Time
+	connIdx      int
+}
+
+// Construct and return a new client Conn, setting default config
+// values as necessary.
+func newClient(config Config, hosts []string) Conn {
 
 	if config.MaxConnections <= 0 {
-		config.MaxConnections = 10
+		config.MaxConnections = 5
 	}
 
 	if config.Timeout <= 0 {
 		config.Timeout = 5 * time.Second
-	}
-
-	if strings.Index(config.Host, ":") == -1 {
-		config.Host = config.Host + ":21"
 	}
 
 	if config.User == "" {
@@ -69,23 +74,12 @@ func NewClient(config Config) Conn {
 		config:     config,
 		freeConnCh: make(chan *persistentConn, config.MaxConnections),
 		t0:         time.Now(),
+		hosts:      hosts,
 	}
 }
 
-// Client connection interface.
-type Conn interface {
-	Retrieve(path string, dest io.Writer) error
-	NameList(path string) ([]string, error)
-}
-
-type client struct {
-	config       Config
-	freeConnCh   chan *persistentConn
-	numOpenConns int32
-	mu           sync.Mutex
-	t0           time.Time
-}
-
+// Log a debug message in the context of the client (i.e. not for a
+// particular connection).
 func (c *client) debug(f string, args ...interface{}) {
 	if c.config.Logger == nil {
 		return
@@ -125,7 +119,8 @@ Loop:
 		c.mu.Lock()
 		if c.numOpenConns < c.config.MaxConnections {
 			c.numOpenConns++
-			idx := c.numOpenConns
+			c.connIdx++
+			idx := c.connIdx
 			c.mu.Unlock()
 			pconn, err := c.openConn(idx)
 			if err != nil {
@@ -152,9 +147,10 @@ Loop:
 }
 
 // open control connection and log in if appropriate
-func (c *client) openConn(idx int32) (pconn *persistentConn, err error) {
-	c.debug("opening #%d to %s", idx, c.config.Host)
-	conn, err := net.DialTimeout("tcp", c.config.Host, c.config.Timeout)
+func (c *client) openConn(idx int) (pconn *persistentConn, err error) {
+	host := c.hosts[idx%len(c.hosts)]
+	c.debug("opening #%d to %s", idx, host)
+	conn, err := net.DialTimeout("tcp", host, c.config.Timeout)
 	if err != nil {
 		return nil, err
 	}
