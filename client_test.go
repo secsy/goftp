@@ -24,8 +24,11 @@ import (
 // addresses pure-ftpd will listen on for tests to use
 var ftpdAddrs = []string{"127.0.0.1:2121", "[::1]:2121"}
 
+// used for implicit tls test
+var implicitTLSAddrs = []string{"127.0.0.1:2122", "[::1]:2122"}
+
 func TestMain(m *testing.M) {
-	closer, err := startPureFTPD(ftpdAddrs)
+	closer, err := startPureFTPD(ftpdAddrs, "ftpd/pure-ftpd")
 
 	if err != nil {
 		log.Fatal(err)
@@ -41,13 +44,13 @@ func TestMain(m *testing.M) {
 }
 
 // start instance of pure-ftpd for each listn addr in ftpdAddrs
-func startPureFTPD(addrs []string) (func(), error) {
+func startPureFTPD(addrs []string, binary string) (func(), error) {
 	if _, err := os.Open("client_test.go"); os.IsNotExist(err) {
 		return nil, errors.New("must run tests in goftp/ directory")
 	}
 
-	if _, err := os.Open("ftpd/pure-ftpd"); os.IsNotExist(err) {
-		return nil, errors.New("pure-ftpd not found! You need to run ./build_test_server.sh from the goftp directory.")
+	if _, err := os.Open(binary); os.IsNotExist(err) {
+		return nil, fmt.Errorf("%s not found! You need to run ./build_test_server.sh from the goftp directory.", binary)
 	}
 
 	cwd, err := os.Getwd()
@@ -63,8 +66,8 @@ func startPureFTPD(addrs []string) (func(), error) {
 		}
 
 		ftpdProc, err := os.StartProcess(
-			"ftpd/pure-ftpd",
-			[]string{"ftpd/pure-ftpd",
+			binary,
+			[]string{binary,
 				"--bind", host + "," + port,
 				"--login", "puredb:ftpd/users.pdb",
 				"--tls", "1",
@@ -400,13 +403,50 @@ func TestResumeStoreOnWriteError(t *testing.T) {
 	}
 }
 
-func TestExplicitFTPS(t *testing.T) {
+func TestExplicitTLS(t *testing.T) {
 	for _, addr := range ftpdAddrs {
 		config := Config{
 			TLSConfig: &tls.Config{
 				InsecureSkipVerify: true,
 			},
 			TLSMode: TLSExplicit,
+		}
+
+		c, err := DialConfig(config, addr)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		buf := new(bytes.Buffer)
+		err = c.Retrieve("subdir/1234.bin", buf)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if !bytes.Equal([]byte{1, 2, 3, 4}, buf.Bytes()) {
+			t.Errorf("Got %v", buf.Bytes())
+		}
+
+		if int(c.numOpenConns) != len(c.freeConnCh) {
+			t.Error("Leaked a connection")
+		}
+	}
+}
+
+func TestImplicitTLS(t *testing.T) {
+	closer, err := startPureFTPD(implicitTLSAddrs, "ftpd/pure-ftpd-implicittls")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	defer closer()
+
+	for _, addr := range implicitTLSAddrs {
+		config := Config{
+			TLSConfig: &tls.Config{
+				InsecureSkipVerify: true,
+			},
+			TLSMode: TLSImplicit,
 		}
 
 		c, err := DialConfig(config, addr)

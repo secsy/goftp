@@ -7,10 +7,18 @@ cd ftpd
 curl -O http://download.pureftpd.org/pub/pure-ftpd/releases/pure-ftpd-1.0.36.tar.gz
 tar -xzf pure-ftpd-1.0.36.tar.gz
 cd pure-ftpd-1.0.36
+
+# build normal binary with explicit tls support
 ./configure --with-nonroot --with-puredb --with-tls --with-certfile=pure-ftpd.pem
 make clean
 make
 mv src/pure-ftpd ..
+
+# build separate binary with implicit tls
+./configure --with-nonroot --with-puredb --with-tls --with-certfile=pure-ftpd.pem --with-implicittls
+make clean
+make
+mv src/pure-ftpd ../pure-ftpd-implicittls
 
 cd ../..
 
@@ -24,4 +32,5 @@ elif [ "$(expr substr $(uname -s) 1 10)" == "MINGW32_NT" ]; then
   exit 1
 fi
 
+# generate puredb user db file
 ftpd/pure-ftpd-1.0.36/src/pure-pw mkdb ftpd/users.pdb -f ftpd/users.txt

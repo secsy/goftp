@@ -5,7 +5,8 @@
 /*
 goftp is an FTP client for go. It's aim is to be simple to use, while providing
 more advanced features under the hood like connection pooling for concurrent
-downloads, and automatic resumption of interrupted uploads and downloads.
+downloads, and automatic resumption of interrupted uploads and downloads. IPv6
+is supported as well.
 */
 package goftp
 

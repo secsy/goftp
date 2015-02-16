@@ -276,23 +276,13 @@ func (pconn *persistentConn) openDataConn() (net.Conn, error) {
 		return nil, fmt.Errorf("error requesting passive connection: %s", err)
 	}
 
-	var dc net.Conn
+	pconn.debug("opening data connection to %s", host)
+	dc, err := net.DialTimeout("tcp", host, pconn.config.Timeout)
 
-	if pconn.config.TLSConfig != nil && pconn.config.TLSMode == TLSImplicit {
-		pconn.debug("opening TLS data connection to %s", host)
-		dialer := &net.Dialer{
-			Timeout: pconn.config.Timeout,
-		}
-		dc, err = tls.DialWithDialer(dialer, "tcp", host, pconn.config.TLSConfig)
-	} else {
-		pconn.debug("opening data connection to %s", host)
-		dc, err = net.DialTimeout("tcp", host, pconn.config.Timeout)
-
-		if err == nil {
-			if pconn.config.TLSConfig != nil && pconn.config.TLSMode == TLSExplicit {
-				pconn.debug("upgrading data connection to TLS")
-				dc = tls.Client(dc, pconn.config.TLSConfig)
-			}
+	if err == nil {
+		if pconn.config.TLSConfig != nil {
+			pconn.debug("upgrading data connection to TLS")
+			dc = tls.Client(dc, pconn.config.TLSConfig)
 		}
 	}
 
