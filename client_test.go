@@ -71,7 +71,7 @@ func startPureFTPD(addrs []string) (func(), error) {
 			},
 			&os.ProcAttr{
 				Env:   []string{fmt.Sprintf("FTP_ANON_DIR=%s/testroot", cwd)},
-				Files: []*os.File{nil, os.Stderr, os.Stderr},
+				Files: []*os.File{os.Stdin, os.Stderr, os.Stderr},
 			},
 		)
 
