@@ -1,3 +1,5 @@
 # contains ftp server used for tests
 ftpd
 
+# used to test uploading files
+testroot/git-ignored

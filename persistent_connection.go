@@ -18,6 +18,9 @@ type persistentConn struct {
 	// control socket
 	controlConn net.Conn
 
+	// data socket (tracked so we can close it on client.Close())
+	dataConn net.Conn
+
 	// control socket read/write helpers
 	reader *textproto.Reader
 	writer *textproto.Writer
@@ -37,9 +40,13 @@ type persistentConn struct {
 }
 
 func (pconn *persistentConn) close() {
-	pconn.debug("closed")
+	pconn.debug("closing")
 	if pconn.controlConn != nil {
 		pconn.controlConn.Close()
+	}
+
+	if pconn.dataConn != nil {
+		pconn.dataConn.Close()
 	}
 }
 
@@ -239,7 +246,11 @@ func (pconn *persistentConn) openDataConn() (net.Conn, error) {
 	}
 
 	pconn.debug("opening data connection to %s", host)
-	return net.DialTimeout("tcp", host, pconn.config.Timeout)
+	dc, err := net.DialTimeout("tcp", host, pconn.config.Timeout)
+	if err != nil {
+		pconn.dataConn = dc
+	}
+	return dc, err
 }
 
 func (pconn *persistentConn) setType(t string) error {

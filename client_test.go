@@ -8,7 +8,10 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io/ioutil"
 	"log"
+	"math/rand"
+	"net"
 	"os"
 	"reflect"
 	"sort"
@@ -17,19 +20,11 @@ import (
 	"time"
 )
 
-// port that the test ftp server listens on
-var ftpdPort = "2121"
-
-// second port some tests use when they want to start their
-// own ftpd (e.g. to test error handling when ftpd restarts)
-var secondFtpdPort = "2122"
-
-// startup up a test ftp server for each of these addresses
-// not sure if ::1 will works on all systems
-var ftpdAddrs = []string{"127.0.0.1", "::1"}
+// addresses pure-ftpd will listen on for tests to use
+var ftpdAddrs = []string{"127.0.0.1:2121", "[::1]:2121"}
 
 func TestMain(m *testing.M) {
-	closer, err := startPureFTPD(ftpdAddrs, ftpdPort)
+	closer, err := startPureFTPD(ftpdAddrs)
 
 	if err != nil {
 		log.Fatal(err)
@@ -44,7 +39,8 @@ func TestMain(m *testing.M) {
 	os.Exit(ret)
 }
 
-func startPureFTPD(addrs []string, port string) (func(), error) {
+// start instance of pure-ftpd for each listn addr in ftpdAddrs
+func startPureFTPD(addrs []string) (func(), error) {
 	if _, err := os.Open("client_test.go"); os.IsNotExist(err) {
 		return nil, errors.New("must run tests in goftp/ directory")
 	}
@@ -60,16 +56,22 @@ func startPureFTPD(addrs []string, port string) (func(), error) {
 
 	var ftpdProcs []*os.Process
 	for _, addr := range addrs {
+		host, port, err := net.SplitHostPort(addr)
+		if err != nil {
+			panic(err)
+		}
+
 		ftpdProc, err := os.StartProcess(
 			"ftpd/pure-ftpd",
-			[]string{"--bind", addr + "," + port},
+			[]string{"ftpd/pure-ftpd", "--bind", host + "," + port, "--login", "puredb:ftpd/users.pdb"},
 			&os.ProcAttr{
-				Env: []string{fmt.Sprintf("FTP_ANON_DIR=%s/testroot", cwd)},
+				Env:   []string{fmt.Sprintf("FTP_ANON_DIR=%s/testroot", cwd)},
+				Files: []*os.File{nil, os.Stderr, os.Stderr},
 			},
 		)
 
 		if err != nil {
-			return nil, fmt.Errorf("error starting pure-ftpd on %s:%s: %s", addr, ftpdPort, err)
+			return nil, fmt.Errorf("error starting pure-ftpd on %s: %s", addr, err)
 		}
 
 		ftpdProcs = append(ftpdProcs, ftpdProc)
@@ -77,12 +79,12 @@ func startPureFTPD(addrs []string, port string) (func(), error) {
 
 	closer := func() {
 		for _, proc := range ftpdProcs {
-			proc.Kill()
+			proc.Signal(os.Interrupt)
 			proc.Wait()
 		}
 	}
 
-	// give it a bit to get started
+	// give them a bit to get started
 	time.Sleep(100 * time.Millisecond)
 
 	return closer, nil
@@ -90,7 +92,7 @@ func startPureFTPD(addrs []string, port string) (func(), error) {
 
 func TestNameList(t *testing.T) {
 	for _, addr := range ftpdAddrs {
-		c, err := Dial(fmt.Sprintf("[%s]:%s", addr, ftpdPort))
+		c, err := Dial(addr)
 
 		if err != nil {
 			t.Fatal(err)
@@ -104,7 +106,7 @@ func TestNameList(t *testing.T) {
 
 		sort.Strings(list)
 
-		if !reflect.DeepEqual([]string{"lorem.txt", "subdir"}, list) {
+		if !reflect.DeepEqual([]string{"git-ignored", "lorem.txt", "subdir"}, list) {
 			t.Errorf("Got %v", list)
 		}
 
@@ -122,7 +124,7 @@ func TestNameList(t *testing.T) {
 
 func TestRetrieve(t *testing.T) {
 	for _, addr := range ftpdAddrs {
-		c, err := Dial(fmt.Sprintf("[%s]:%s", addr, ftpdPort))
+		c, err := Dial(addr)
 
 		if err != nil {
 			t.Fatal(err)
@@ -130,7 +132,7 @@ func TestRetrieve(t *testing.T) {
 
 		buf := new(bytes.Buffer)
 
-		// first try a file that doesn't to make sure we get an error and our
+		// first try a file that doesn't exit to make sure we get an error and our
 		// connection is still okay
 		err = c.Retrieve("doesnt-exist", buf)
 
@@ -150,14 +152,14 @@ func TestRetrieve(t *testing.T) {
 	}
 }
 
-// io.Writer tests use to simulate various exceptional cases during
+// io.Writer used to simulate various exceptional cases during
 // file downloads
-type twoByter struct {
+type testWriter struct {
 	writes [][]byte
 	cb     func([]byte) (int, error)
 }
 
-func (tb *twoByter) Write(p []byte) (int, error) {
+func (tb *testWriter) Write(p []byte) (int, error) {
 	n, err := tb.cb(p)
 	if n > 0 {
 		tb.writes = append(tb.writes, p[0:n])
@@ -169,13 +171,13 @@ func (tb *twoByter) Write(p []byte) (int, error) {
 // In this test we are simulating a client write error.
 func TestResumeRetrieveOnWriteError(t *testing.T) {
 	for _, addr := range ftpdAddrs {
-		c, err := Dial(fmt.Sprintf("[%s]:%s", addr, ftpdPort))
+		c, err := Dial(addr)
 
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		buf := new(twoByter)
+		buf := new(testWriter)
 
 		buf.cb = func(p []byte) (int, error) {
 			if len(p) <= 2 {
@@ -197,37 +199,26 @@ func TestResumeRetrieveOnWriteError(t *testing.T) {
 	}
 }
 
-// kill server part way through download
+// In this test we simulate a read error by closing all connections
+// part way through the download.
 func TestResumeRetrieveOnReadError(t *testing.T) {
-	closer, err := startPureFTPD(ftpdAddrs, secondFtpdPort)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// not "defer closer()" intentionally
-	defer func() {
-		closer()
-	}()
-
 	for _, addr := range ftpdAddrs {
-		c, err := Dial(fmt.Sprintf("[%s]:%s", addr, ftpdPort))
+		c, err := Dial(addr)
 
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		buf := new(twoByter)
+		buf := new(testWriter)
 
 		buf.cb = func(p []byte) (int, error) {
 			if len(p) <= 2 {
 				return len(p), nil
 			} else {
-				// restart the ftpd server
-				closer()
-				closer, err = startPureFTPD(ftpdAddrs, secondFtpdPort)
-				if err != nil {
-					t.Fatal(err)
-				}
+				// close all the connections, then reset closed so we
+				// can keep using this client
+				c.Close()
+				c.(*client).closed = false
 				return 2, errors.New("too many bytes to handle!")
 			}
 		}
@@ -247,7 +238,7 @@ func TestResumeRetrieveOnReadError(t *testing.T) {
 func TestTimeoutConnect(t *testing.T) {
 	config := Config{Timeout: 100 * time.Millisecond}
 
-	c, err := DialConfig(config, fmt.Sprintf("168.254.111.222:%s", ftpdPort))
+	c, err := DialConfig(config, "168.254.111.222:2121")
 
 	t0 := time.Now()
 	_, err = c.NameList("")
@@ -263,5 +254,115 @@ func TestTimeoutConnect(t *testing.T) {
 	}
 	if offBy > 50*time.Millisecond {
 		t.Errorf("Timeout of 100ms was off by %s", offBy)
+	}
+}
+
+func TestStore(t *testing.T) {
+	for _, addr := range ftpdAddrs {
+		c, err := Dial(addr)
+
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		toSend, err := os.Open("testroot/subdir/1234.bin")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		os.Remove("testroot/git-ignored/foo")
+
+		err = c.Store("/git-ignored/foo", toSend)
+
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		stored, err := ioutil.ReadFile("testroot/git-ignored/foo")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if !bytes.Equal([]byte{1, 2, 3, 4}, stored) {
+			t.Errorf("Got %v", stored)
+		}
+	}
+}
+
+// io.Reader that also implements io.Seeker interface like
+// *os.File (used to test resuming uploads)
+type testSeeker struct {
+	buf   *bytes.Reader
+	soFar int
+	cb    func(int)
+}
+
+func (ts *testSeeker) Read(p []byte) (int, error) {
+	n, err := ts.buf.Read(p)
+	ts.soFar += n
+	ts.cb(ts.soFar)
+	return n, err
+}
+
+func (ts *testSeeker) Seek(offset int64, whence int) (int64, error) {
+	return ts.buf.Seek(offset, whence)
+}
+
+func randomBytes(b []byte) {
+	for i := 0; i < len(b); i++ {
+		b[i] = byte(rand.Int31n(256))
+	}
+}
+
+// kill connections part way through upload - show we can restart if src
+// is an io.Seeker
+func TestResumeStoreOnWriteError(t *testing.T) {
+	for _, addr := range ftpdAddrs[0:1] {
+		// pure-ftpd doesn't let anonymous users write to existing files,
+		// so we use a separate user to test resuming uploads
+		config := Config{
+			User:     "goftp",
+			Password: "rocks",
+		}
+		c, err := DialConfig(config, addr)
+
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// 10MB of random data
+		buf := make([]byte, 10*1024*1024)
+		randomBytes(buf)
+
+		closed := false
+
+		seeker := &testSeeker{
+			buf: bytes.NewReader(buf),
+			cb: func(readSoFar int) {
+				if readSoFar > 5*1024*1024 && !closed {
+					// close all connections half way through upload
+					c.Close()
+					c.(*client).closed = false
+					closed = true
+				}
+			},
+		}
+
+		os.Remove("testroot/git-ignored/big")
+
+		err = c.Store("git-ignored/big", seeker)
+
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		stored, err := ioutil.ReadFile("testroot/git-ignored/big")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if !bytes.Equal(buf, stored) {
+			t.Errorf("buf was %d, stored was %d", len(buf), len(stored))
+		}
 	}
 }
