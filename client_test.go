@@ -6,6 +6,7 @@ package goftp
 
 import (
 	"bytes"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"io/ioutil"
@@ -63,7 +64,11 @@ func startPureFTPD(addrs []string) (func(), error) {
 
 		ftpdProc, err := os.StartProcess(
 			"ftpd/pure-ftpd",
-			[]string{"ftpd/pure-ftpd", "--bind", host + "," + port, "--login", "puredb:ftpd/users.pdb"},
+			[]string{"ftpd/pure-ftpd",
+				"--bind", host + "," + port,
+				"--login", "puredb:ftpd/users.pdb",
+				"--tls", "1",
+			},
 			&os.ProcAttr{
 				Env:   []string{fmt.Sprintf("FTP_ANON_DIR=%s/testroot", cwd)},
 				Files: []*os.File{nil, os.Stderr, os.Stderr},
@@ -317,7 +322,7 @@ func randomBytes(b []byte) {
 // kill connections part way through upload - show we can restart if src
 // is an io.Seeker
 func TestResumeStoreOnWriteError(t *testing.T) {
-	for _, addr := range ftpdAddrs[0:1] {
+	for _, addr := range ftpdAddrs {
 		// pure-ftpd doesn't let anonymous users write to existing files,
 		// so we use a separate user to test resuming uploads
 		config := Config{
@@ -363,6 +368,32 @@ func TestResumeStoreOnWriteError(t *testing.T) {
 
 		if !bytes.Equal(buf, stored) {
 			t.Errorf("buf was %d, stored was %d", len(buf), len(stored))
+		}
+	}
+}
+
+func TestExplicitFTPS(t *testing.T) {
+	for _, addr := range ftpdAddrs {
+		config := Config{
+			TLSConfig: &tls.Config{
+				InsecureSkipVerify: true,
+			},
+			TLSMode: TLSExplicit,
+		}
+
+		c, err := DialConfig(config, addr)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		buf := new(bytes.Buffer)
+		err = c.Retrieve("subdir/1234.bin", buf)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if !bytes.Equal([]byte{1, 2, 3, 4}, buf.Bytes()) {
+			t.Errorf("Got %v", buf.Bytes())
 		}
 	}
 }

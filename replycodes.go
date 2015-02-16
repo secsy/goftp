@@ -7,6 +7,9 @@ package goftp
 // Taken from https://www.ietf.org/rfc/rfc959.txt
 
 const (
+	ReplyGroupPreliminaryReply   = 1
+	ReplyGroupPositiveCompletion = 2
+
 	// positive preliminary replies
 	ReplyRestartMarker             = 110 // Restart marker reply
 	ReplyReadyInNMinutes           = 120 // Service ready in nnn minutes
@@ -28,6 +31,7 @@ const (
 	ReplyEnteringPassiveMode         = 227
 	ReplyEnteringExtendedPassiveMode = 229
 	ReplyUserLoggedIn                = 230
+	ReplyAuthOkayNoDataNeeded        = 234
 	ReplyFileActionOkay              = 250 // (completed)
 	ReplyDirCreated                  = 257
 

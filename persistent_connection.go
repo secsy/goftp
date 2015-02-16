@@ -5,6 +5,8 @@
 package goftp
 
 import (
+	"bufio"
+	"crypto/tls"
 	"fmt"
 	"net"
 	"net/textproto"
@@ -39,6 +41,12 @@ type persistentConn struct {
 	features map[string]string
 }
 
+func (pconn *persistentConn) setControlConn(conn net.Conn) {
+	pconn.controlConn = conn
+	pconn.reader = textproto.NewReader(bufio.NewReader(conn))
+	pconn.writer = textproto.NewWriter(bufio.NewWriter(conn))
+}
+
 func (pconn *persistentConn) close() {
 	pconn.debug("closing")
 	if pconn.controlConn != nil {
@@ -50,22 +58,56 @@ func (pconn *persistentConn) close() {
 	}
 }
 
+func (pconn *persistentConn) sendCommandExpected(expected int, f string, args ...interface{}) error {
+	code, msg, err := pconn.sendCommand(f, args...)
+	if err != nil {
+		return err
+	}
+
+	var ok bool
+	switch expected {
+	case ReplyGroupPositiveCompletion, ReplyGroupPreliminaryReply:
+		ok = code/100 == expected
+	default:
+		ok = code == expected
+	}
+
+	if !ok {
+		return fmt.Errorf("unexpected response: %d-%s", code, msg)
+	}
+
+	return nil
+}
+
 func (pconn *persistentConn) sendCommand(f string, args ...interface{}) (int, string, error) {
-	err := pconn.writer.PrintfLine(f, args...)
+	cmd := fmt.Sprintf(f, args...)
+
+	logName := cmd
+	if strings.HasPrefix(cmd, "PASS") {
+		logName = "PASS ******"
+	}
+
+	err := pconn.writer.PrintfLine(cmd)
+
 	if err != nil {
 		pconn.broken = true
+		pconn.debug(`error sending command "%s": %s`, logName, err)
 		return 0, "", fmt.Errorf("error writing command: %s", err)
 	}
 
 	code, msg, err := pconn.readResponse(0)
 	if err != nil {
-		return 0, "", fmt.Errorf("error reading response: %s")
+		pconn.debug(`error reading response to command "%s": %s`, logName, err)
+		return 0, "", fmt.Errorf("error reading command response: %s", err)
 	}
+
+	pconn.debug("sent command %s, got %d-%s", logName, code, msg)
 
 	return code, msg, err
 }
 
 func (pconn *persistentConn) readResponse(expectedCode int) (int, string, error) {
+	pconn.controlConn.SetReadDeadline(time.Now().Add(pconn.config.Timeout))
 	code, msg, err := pconn.reader.ReadResponse(expectedCode)
 	if err != nil {
 		pconn.broken = true
@@ -88,16 +130,14 @@ func (pconn *persistentConn) debug(f string, args ...interface{}) {
 }
 
 func (pconn *persistentConn) fetchFeatures() error {
-	pconn.debug("fetching features")
-
 	code, msg, err := pconn.sendCommand("FEAT")
 	if err != nil {
-		return fmt.Errorf("error fetching features: %s", err)
+		return err
 	}
 
 	if !positiveCompletionReply(code) {
-		pconn.debug("server doesn't support FEAT: %d (%s)", code, msg)
-		return nil
+		pconn.debug("server doesn't support FEAT: %d-%s", code, msg)
+		return fmt.Errorf("server doesn't support FEAT (%s)", msg)
 	}
 
 	for _, line := range strings.Split(msg, "\n") {
@@ -124,12 +164,11 @@ func (pconn *persistentConn) hasFeatureWithArg(name, arg string) bool {
 	return found && strings.ToUpper(arg) == val
 }
 
-func (pconn *persistentConn) logInConn() error {
+func (pconn *persistentConn) logIn() error {
 	if pconn.config.User == "" {
 		return nil
 	}
 
-	pconn.debug("logging in as user %s", pconn.config.User)
 	code, msg, err := pconn.sendCommand("USER %s", pconn.config.User)
 	if err != nil {
 		pconn.broken = true
@@ -137,7 +176,6 @@ func (pconn *persistentConn) logInConn() error {
 	}
 
 	if code == ReplyNeedPassword {
-		pconn.debug("sending password")
 		code, msg, err = pconn.sendCommand("PASS %s", pconn.config.Password)
 		if err != nil {
 			return err
@@ -145,7 +183,7 @@ func (pconn *persistentConn) logInConn() error {
 	}
 
 	if !positiveCompletionReply(code) {
-		return fmt.Errorf("unexpected response: %d (%s)", code, msg)
+		return fmt.Errorf("unexpected response to PASS: %d-%s", code, msg)
 	}
 
 	return nil
@@ -164,14 +202,13 @@ func (pconn *persistentConn) requestPassive() (string, error) {
 
 	// Extended PaSsiVe (same idea as PASV, but works with IPv6).
 	// See http://tools.ietf.org/html/rfc2428.
-	pconn.debug("requesting EPSV")
 	code, msg, err := pconn.sendCommand("EPSV")
 	if err != nil {
 		return "", err
 	}
 
 	if code != ReplyEnteringExtendedPassiveMode {
-		pconn.debug("server doesn't support EPSV: %d (%s)", code, msg)
+		pconn.debug("server doesn't support EPSV: %d-%s", code, msg)
 		goto PASV
 	}
 
@@ -197,14 +234,9 @@ func (pconn *persistentConn) requestPassive() (string, error) {
 	return fmt.Sprintf("[%s]:%d", remoteHost, port), nil
 
 PASV:
-	pconn.debug("requesting PASV")
-	code, msg, err = pconn.sendCommand("PASV")
+	err = pconn.sendCommandExpected(ReplyEnteringPassiveMode, "PASV")
 	if err != nil {
-		return "", err
-	}
-
-	if code != ReplyEnteringPassiveMode {
-		return "", fmt.Errorf("server doesn't support PASV: %d (%s)", code, msg)
+		return "", fmt.Errorf("error requesting PASV: %s", err)
 	}
 
 	parseError := fmt.Errorf("error parsing PASV response (%s)", msg)
@@ -241,28 +273,65 @@ PASV:
 func (pconn *persistentConn) openDataConn() (net.Conn, error) {
 	host, err := pconn.requestPassive()
 	if err != nil {
-		pconn.debug("error requesting passive connection: %s", err)
 		return nil, fmt.Errorf("error requesting passive connection: %s", err)
 	}
 
-	pconn.debug("opening data connection to %s", host)
-	dc, err := net.DialTimeout("tcp", host, pconn.config.Timeout)
-	if err != nil {
-		pconn.dataConn = dc
+	var dc net.Conn
+
+	if pconn.config.TLSConfig != nil && pconn.config.TLSMode == TLSImplicit {
+		pconn.debug("opening TLS data connection to %s", host)
+		dialer := &net.Dialer{
+			Timeout: pconn.config.Timeout,
+		}
+		dc, err = tls.DialWithDialer(dialer, "tcp", host, pconn.config.TLSConfig)
+	} else {
+		pconn.debug("opening data connection to %s", host)
+		dc, err = net.DialTimeout("tcp", host, pconn.config.Timeout)
+
+		if err == nil {
+			if pconn.config.TLSConfig != nil && pconn.config.TLSMode == TLSExplicit {
+				pconn.debug("upgrading data connection to TLS")
+				dc = tls.Client(dc, pconn.config.TLSConfig)
+			}
+		}
 	}
-	return dc, err
+
+	if err != nil {
+		return nil, err
+	}
+
+	pconn.dataConn = dc
+	return dc, nil
 }
 
 func (pconn *persistentConn) setType(t string) error {
-	pconn.debug("switching to TYPE %s", t)
-	code, msg, err := pconn.sendCommand("TYPE %s", t)
+	return pconn.sendCommandExpected(ReplyCommandOkay, "TYPE %s", t)
+}
+
+func (pconn *persistentConn) logInTLS() error {
+	err := pconn.sendCommandExpected(ReplyAuthOkayNoDataNeeded, "AUTH TLS")
 	if err != nil {
 		return err
 	}
 
-	if code != ReplyCommandOkay {
-		return fmt.Errorf("unexpected response: %d (%s)", code, msg)
+	pconn.setControlConn(tls.Client(pconn.controlConn, pconn.config.TLSConfig))
+
+	err = pconn.logIn()
+	if err != nil {
+		return err
 	}
+
+	err = pconn.sendCommandExpected(ReplyGroupPositiveCompletion, "PBSZ 0")
+	if err != nil {
+		return err
+	}
+
+	err = pconn.sendCommandExpected(ReplyGroupPositiveCompletion, "PROT P")
+	if err != nil {
+		return err
+	}
+
+	pconn.debug("successfully upgraded to TLS")
 
 	return nil
 }

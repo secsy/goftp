@@ -6,11 +6,11 @@ package goftp
 
 import (
 	"bufio"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
 	"net"
-	"net/textproto"
 	"os"
 	"strconv"
 	"sync"
@@ -18,9 +18,16 @@ import (
 	"time"
 )
 
+type TLSMode int
+
+const (
+	TLSExplicit TLSMode = 0
+	TLSImplicit TLSMode = 1
+)
+
 // Client config
 type Config struct {
-	// User name. Defaults to "anonymous"
+	// User name. Defaults to "anonymous".
 	User string
 
 	// User password. Defaults to "anonymous" if required.
@@ -29,9 +36,18 @@ type Config struct {
 	// Maximum number of FTP connections to open at once. Defaults to 5.
 	MaxConnections int32
 
-	// Timeout for opening connections and sending individual commands. Defaults to
-	// 5 seconds.
+	// Timeout for opening connections and sending individual commands. Defaults
+	// to 5 seconds.
 	Timeout time.Duration
+
+	// TLS Config used for FTPS. If provided, it will be an error if the server
+	// does not support TLS. Both the control and data connection will use TLS.
+	TLSConfig *tls.Config
+
+	// FTPS mode. TLSExplicit means connect non-TLS, then upgrade connection to
+	// TLS via "AUTH TLS" command. TLSImplicit means open the connection using
+	// TLS. Defaults to TLSExplicit.
+	TLSMode TLSMode
 
 	// Logging destination for debugging messages. Set to os.Stderr to log to stderr.
 	Logger io.Writer
@@ -124,6 +140,7 @@ func (c *client) debug(f string, args ...interface{}) {
 	c.config.Logger.Write([]byte(msg))
 }
 
+// Get an idle connection.
 func (c *client) getIdleConn() (*persistentConn, error) {
 
 	// First check for available connections in the channel.
@@ -166,11 +183,11 @@ Loop:
 			pconn := <-c.freeConnCh
 
 			if pconn.broken {
-				c.debug("waited for #%d (broken)", pconn.idx)
+				c.debug("waited and got #%d (broken)", pconn.idx)
 				atomic.AddInt32(&c.numOpenConns, -1)
 				c.removeConn(pconn)
 			} else {
-				c.debug("waited for #%d", pconn.idx)
+				c.debug("waited and got #%d", pconn.idx)
 				return pconn, nil
 			}
 		}
@@ -188,32 +205,50 @@ func (c *client) returnConn(pconn *persistentConn) {
 	c.freeConnCh <- pconn
 }
 
-// open control connection and log in if appropriate
+// Open and set up a control connection.
 func (c *client) openConn(idx int) (pconn *persistentConn, err error) {
+	pconn = &persistentConn{
+		idx:      idx,
+		features: make(map[string]string),
+		config:   c.config,
+		t0:       c.t0,
+	}
+
 	host := c.hosts[idx%len(c.hosts)]
-	c.debug("#%d dialing %s", idx, host)
-	conn, err := net.DialTimeout("tcp", host, c.config.Timeout)
+
+	var conn net.Conn
+
+	if c.config.TLSConfig != nil && c.config.TLSMode == TLSImplicit {
+		pconn.debug("opening TLS control connection to %s", host)
+		dialer := &net.Dialer{
+			Timeout: c.config.Timeout,
+		}
+		conn, err = tls.DialWithDialer(dialer, "tcp", host, pconn.config.TLSConfig)
+	} else {
+		pconn.debug("opening control connection to %s", host)
+		conn, err = net.DialTimeout("tcp", host, c.config.Timeout)
+	}
+
 	if err != nil {
 		return nil, err
 	}
 
-	pconn = &persistentConn{
-		controlConn: conn,
-		idx:         idx,
-		reader:      textproto.NewReader(bufio.NewReader(conn)),
-		writer:      textproto.NewWriter(bufio.NewWriter(conn)),
-		features:    make(map[string]string),
-		config:      c.config,
-		t0:          c.t0,
-	}
+	pconn.setControlConn(conn)
 
 	_, _, err = pconn.readResponse(ReplyServiceReady)
 	if err != nil {
 		goto Error
 	}
 
-	if err = pconn.logInConn(); err != nil {
-		goto Error
+	if c.config.TLSConfig != nil && c.config.TLSMode == TLSExplicit {
+		err = pconn.logInTLS()
+		if err != nil {
+			goto Error
+		}
+	} else {
+		if err = pconn.logIn(); err != nil {
+			goto Error
+		}
 	}
 
 	if err = pconn.fetchFeatures(); err != nil {
@@ -236,37 +271,36 @@ Error:
 	return nil, err
 }
 
-// fetch SIZE of file
-func (c *client) size(path string) int64 {
+// Fetch SIZE of file. Returns error only on underlying connection error.
+// If the server doesn't support size, it returns -1 and no error.
+func (c *client) size(path string) (int64, error) {
 	pconn, err := c.getIdleConn()
 	if err != nil {
-		return -1
+		return -1, err
 	}
 
 	defer c.returnConn(pconn)
 
 	if !pconn.hasFeature("SIZE") {
 		pconn.debug("server doesn't support SIZE")
-		return -1
+		return -1, nil
 	}
 
-	pconn.debug("requesting SIZE %s", path)
 	code, msg, err := pconn.sendCommand("SIZE %s", path)
 	if err != nil {
-		pconn.debug("failed running SIZE: %s", err)
-		return -1
+		return -1, err
 	}
 
 	if code != ReplyFileStatus {
 		pconn.debug("unexpected SIZE response: %d (%s)", code, msg)
-		return -1
+		return -1, nil
 	} else {
 		size, err := strconv.ParseInt(msg, 10, 64)
 		if err != nil {
 			pconn.debug(`failed parsing SIZE response "%s": %s`, msg, err)
-			return -1
+			return -1, nil
 		} else {
-			return size
+			return size, nil
 		}
 	}
 }
@@ -285,9 +319,14 @@ func (c *client) canResume() bool {
 // Retrieve file "path" from server and write bytes to "dest". If the
 // server supports resuming stream transfers, Retrieve will continue
 // resuming a failed download as long as it continues making progress.
+// Retrieve will also verify the file's size after the transfer if the
+// server supports the SIZE command.
 func (c *client) Retrieve(path string, dest io.Writer) error {
 	// fetch file size to check against how much we transferred
-	size := c.size(path)
+	size, err := c.size(path)
+	if err != nil {
+		return err
+	}
 
 	canResume := c.canResume()
 
@@ -317,7 +356,9 @@ func (c *client) Retrieve(path string, dest io.Writer) error {
 // server supports resuming stream transfers and "src" is an io.Seeker
 // (*os.File is an io.Seeker), Store will continue resuming a failed upload
 // as long as it continues making progress. Store will not attempt to
-// resume an upload if the client is connected to multiple servers.
+// resume an upload if the client is connected to multiple servers. Store
+// will also verify the remote file's size after the transfer if the server
+// supports the SIZE command.
 func (c *client) Store(path string, src io.Reader) error {
 
 	canResume := len(c.hosts) == 1 && c.canResume()
@@ -334,7 +375,10 @@ func (c *client) Store(path string, src io.Reader) error {
 	)
 	for {
 		if bytesSoFar > 0 {
-			size := c.size(path)
+			size, err := c.size(path)
+			if err != nil {
+				return err
+			}
 			if size == -1 {
 				return fmt.Errorf("%s (resume failed)", err)
 			}
@@ -365,7 +409,10 @@ func (c *client) Store(path string, src io.Reader) error {
 	}
 
 	// fetch file size to check against how much we transferred
-	size := c.size(path)
+	size, err := c.size(path)
+	if err != nil {
+		return err
+	}
 	if size != -1 && size != bytesSoFar {
 		return fmt.Errorf("sent %d bytes, but size is %d", bytesSoFar, size)
 	}
@@ -386,15 +433,9 @@ func (c *client) transferFromOffset(path string, dest io.Writer, src io.Reader, 
 	}
 
 	if offset > 0 {
-		pconn.debug("requesting REST %d", offset)
-		code, msg, err := pconn.sendCommand("REST %d", offset)
+		err := pconn.sendCommandExpected(ReplyFileActionPending, "REST %d", offset)
 		if err != nil {
 			return 0, err
-		}
-
-		if code != ReplyFileActionPending {
-			pconn.debug("unexpected response to REST: %d (%s)", code, msg)
-			return 0, fmt.Errorf("server doesn't support resuming")
 		}
 	}
 
@@ -418,14 +459,9 @@ func (c *client) transferFromOffset(path string, dest io.Writer, src io.Reader, 
 		panic("this shouldn't happen")
 	}
 
-	code, msg, err := pconn.sendCommand("%s %s", cmd, path)
+	err = pconn.sendCommandExpected(ReplyGroupPreliminaryReply, "%s %s", cmd, path)
 	if err != nil {
 		return 0, err
-	}
-
-	if !positivePreliminaryReply(code) {
-		pconn.debug("unexpected response to %s: %d (%s)", cmd, code, msg)
-		return 0, fmt.Errorf("unexpected response to %s: %d (%s)", cmd, code, msg)
 	}
 
 	n, err := io.Copy(dest, src)
@@ -440,7 +476,7 @@ func (c *client) transferFromOffset(path string, dest io.Writer, src io.Reader, 
 		pconn.debug("error closing data connection: %s", err)
 	}
 
-	code, msg, err = pconn.readResponse(0)
+	code, msg, err := pconn.readResponse(0)
 	if err != nil {
 		pconn.debug("error reading response after %s: %s", cmd, err)
 		return n, err
@@ -471,15 +507,10 @@ func (c *client) NameList(path string) ([]string, error) {
 	// to catch early returns
 	defer dc.Close()
 
-	pconn.debug("sending NLST")
-	code, msg, err := pconn.sendCommand("NLST %s", path)
+	err = pconn.sendCommandExpected(ReplyGroupPreliminaryReply, "NLST %s", path)
+
 	if err != nil {
 		return nil, err
-	}
-
-	if !positivePreliminaryReply(code) {
-		pconn.debug("unexpected response: %d (%s)", code, msg)
-		return nil, fmt.Errorf("unexpected response: %d (%s)", code, msg)
 	}
 
 	scanner := bufio.NewScanner(dc)
@@ -501,18 +532,18 @@ func (c *client) NameList(path string) ([]string, error) {
 		pconn.debug("error closing data connection: %s", err)
 	}
 
-	code, msg, err = pconn.readResponse(0)
+	code, msg, err := pconn.readResponse(0)
 	if err != nil {
 		pconn.debug("error reading response: %s", err)
 		return nil, err
 	}
 
 	if !positiveCompletionReply(code) {
-		pconn.debug("unexpected result: %d (%s)", code, msg)
+		pconn.debug("unexpected result: %d-%s", code, msg)
 		return nil, fmt.Errorf("unexpected result: %d (%s)", code, msg)
 	}
 
-	pconn.debug("finished NameList (%d %s)", code, msg)
+	pconn.debug("finished NameList: %d-%s", code, msg)
 
 	if dataError != nil {
 		return nil, dataError
