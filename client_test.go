@@ -124,6 +124,10 @@ func TestNameList(t *testing.T) {
 		if !reflect.DeepEqual([]string{"1234.bin"}, list) {
 			t.Errorf("Got %v", list)
 		}
+
+		if int(c.(*client).numOpenConns) != len(c.(*client).freeConnCh) {
+			t.Error("Leaked a connection")
+		}
 	}
 }
 
@@ -153,6 +157,10 @@ func TestRetrieve(t *testing.T) {
 
 		if !bytes.Equal([]byte{1, 2, 3, 4}, buf.Bytes()) {
 			t.Errorf("Got %v", buf.Bytes())
+		}
+
+		if int(c.(*client).numOpenConns) != len(c.(*client).freeConnCh) {
+			t.Error("Leaked a connection")
 		}
 	}
 }
@@ -201,6 +209,10 @@ func TestResumeRetrieveOnWriteError(t *testing.T) {
 		if !reflect.DeepEqual([][]byte{[]byte{1, 2}, []byte{3, 4}}, buf.writes) {
 			t.Errorf("Got %v", buf.writes)
 		}
+
+		if int(c.(*client).numOpenConns) != len(c.(*client).freeConnCh) {
+			t.Error("Leaked a connection")
+		}
 	}
 }
 
@@ -237,6 +249,10 @@ func TestResumeRetrieveOnReadError(t *testing.T) {
 		if !reflect.DeepEqual([][]byte{[]byte{1, 2}, []byte{3, 4}}, buf.writes) {
 			t.Errorf("Got %v", buf.writes)
 		}
+
+		if int(c.(*client).numOpenConns) != len(c.(*client).freeConnCh) {
+			t.Error("Leaked a connection")
+		}
 	}
 }
 
@@ -259,6 +275,10 @@ func TestTimeoutConnect(t *testing.T) {
 	}
 	if offBy > 50*time.Millisecond {
 		t.Errorf("Timeout of 100ms was off by %s", offBy)
+	}
+
+	if int(c.(*client).numOpenConns) != len(c.(*client).freeConnCh) {
+		t.Error("Leaked a connection")
 	}
 }
 
@@ -290,6 +310,10 @@ func TestStore(t *testing.T) {
 
 		if !bytes.Equal([]byte{1, 2, 3, 4}, stored) {
 			t.Errorf("Got %v", stored)
+		}
+
+		if int(c.(*client).numOpenConns) != len(c.(*client).freeConnCh) {
+			t.Error("Leaked a connection")
 		}
 	}
 }
@@ -369,6 +393,10 @@ func TestResumeStoreOnWriteError(t *testing.T) {
 		if !bytes.Equal(buf, stored) {
 			t.Errorf("buf was %d, stored was %d", len(buf), len(stored))
 		}
+
+		if int(c.(*client).numOpenConns) != len(c.(*client).freeConnCh) {
+			t.Error("Leaked a connection")
+		}
 	}
 }
 
@@ -394,6 +422,10 @@ func TestExplicitFTPS(t *testing.T) {
 
 		if !bytes.Equal([]byte{1, 2, 3, 4}, buf.Bytes()) {
 			t.Errorf("Got %v", buf.Bytes())
+		}
+
+		if int(c.(*client).numOpenConns) != len(c.(*client).freeConnCh) {
+			t.Error("Leaked a connection")
 		}
 	}
 }
