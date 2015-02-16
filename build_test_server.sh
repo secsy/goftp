@@ -12,7 +12,16 @@ make clean
 make
 mv src/pure-ftpd ..
 
-# setup up a goftp user for ftp server
 cd ../..
-echo "goftp:_.../HVM0l1lcNKVtiKs:`id -u`:`id -g`::`pwd`/testroot::::::::::::" > ftpd/users.txt
+
+# setup up a goftp user for ftp server
+if [ "$(uname)" == "Darwin" ]; then
+  echo "goftp:_.../HVM0l1lcNKVtiKs:`id -u`:`id -g`::`pwd`/testroot/./::::::::::::" > ftpd/users.txt
+elif [ "$(expr substr $(uname -s) 1 5)" == "Linux" ]; then
+  echo "goftp:\$1\$salt\$IbAl9EugC.V4mMOY6YMYE0:`id -u`:`id -g`::`pwd`/testroot/./::::::::::::" > ftpd/users.txt
+elif [ "$(expr substr $(uname -s) 1 10)" == "MINGW32_NT" ]; then
+  echo "Doesn't support windows yet"
+  exit 1
+fi
+
 ftpd/pure-ftpd-1.0.36/src/pure-pw mkdb ftpd/users.pdb -f ftpd/users.txt
