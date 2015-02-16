@@ -25,7 +25,7 @@ const (
 	TLSImplicit TLSMode = 1
 )
 
-// Client config
+// Client configuration object.
 type Config struct {
 	// User name. Defaults to "anonymous".
 	User string
@@ -53,15 +53,7 @@ type Config struct {
 	Logger io.Writer
 }
 
-// Client connection interface.
-type Conn interface {
-	Retrieve(path string, dest io.Writer) error
-	NameList(path string) ([]string, error)
-	Store(path string, src io.Reader) error
-	Close() error
-}
-
-type client struct {
+type Client struct {
 	config       Config
 	hosts        []string
 	freeConnCh   chan *persistentConn
@@ -75,7 +67,7 @@ type client struct {
 
 // Construct and return a new client Conn, setting default config
 // values as necessary.
-func newClient(config Config, hosts []string) Conn {
+func newClient(config Config, hosts []string) *Client {
 
 	if config.MaxConnections <= 0 {
 		config.MaxConnections = 5
@@ -93,7 +85,7 @@ func newClient(config Config, hosts []string) Conn {
 		config.Password = "anonymous"
 	}
 
-	return &client{
+	return &Client{
 		config:     config,
 		freeConnCh: make(chan *persistentConn, config.MaxConnections),
 		t0:         time.Now(),
@@ -105,7 +97,7 @@ func newClient(config Config, hosts []string) Conn {
 // Closes all open server connections. Currently this does not attempt
 // to do any kind of polite FTP connection termination. It will interrupt
 // all transfers in progress.
-func (c *client) Close() error {
+func (c *Client) Close() error {
 	c.mu.Lock()
 	if c.closed {
 		return errors.New("already closed")
@@ -127,7 +119,7 @@ func (c *client) Close() error {
 
 // Log a debug message in the context of the client (i.e. not for a
 // particular connection).
-func (c *client) debug(f string, args ...interface{}) {
+func (c *Client) debug(f string, args ...interface{}) {
 	if c.config.Logger == nil {
 		return
 	}
@@ -141,7 +133,7 @@ func (c *client) debug(f string, args ...interface{}) {
 }
 
 // Get an idle connection.
-func (c *client) getIdleConn() (*persistentConn, error) {
+func (c *Client) getIdleConn() (*persistentConn, error) {
 
 	// First check for available connections in the channel.
 Loop:
@@ -194,19 +186,19 @@ Loop:
 	}
 }
 
-func (c *client) removeConn(pconn *persistentConn) {
+func (c *Client) removeConn(pconn *persistentConn) {
 	c.mu.Lock()
 	delete(c.allCons, pconn.idx)
 	c.mu.Unlock()
 	pconn.close()
 }
 
-func (c *client) returnConn(pconn *persistentConn) {
+func (c *Client) returnConn(pconn *persistentConn) {
 	c.freeConnCh <- pconn
 }
 
 // Open and set up a control connection.
-func (c *client) openConn(idx int) (pconn *persistentConn, err error) {
+func (c *Client) openConn(idx int) (pconn *persistentConn, err error) {
 	pconn = &persistentConn{
 		idx:      idx,
 		features: make(map[string]string),
@@ -235,7 +227,7 @@ func (c *client) openConn(idx int) (pconn *persistentConn, err error) {
 
 	pconn.setControlConn(conn)
 
-	_, _, err = pconn.readResponse(ReplyServiceReady)
+	_, _, err = pconn.readResponse(replyServiceReady)
 	if err != nil {
 		goto Error
 	}
@@ -273,7 +265,7 @@ Error:
 
 // Fetch SIZE of file. Returns error only on underlying connection error.
 // If the server doesn't support size, it returns -1 and no error.
-func (c *client) size(path string) (int64, error) {
+func (c *Client) size(path string) (int64, error) {
 	pconn, err := c.getIdleConn()
 	if err != nil {
 		return -1, err
@@ -291,7 +283,7 @@ func (c *client) size(path string) (int64, error) {
 		return -1, err
 	}
 
-	if code != ReplyFileStatus {
+	if code != replyFileStatus {
 		pconn.debug("unexpected SIZE response: %d (%s)", code, msg)
 		return -1, nil
 	} else {
@@ -305,7 +297,7 @@ func (c *client) size(path string) (int64, error) {
 	}
 }
 
-func (c *client) canResume() bool {
+func (c *Client) canResume() bool {
 	pconn, err := c.getIdleConn()
 	if err != nil {
 		return false
@@ -321,7 +313,7 @@ func (c *client) canResume() bool {
 // resuming a failed download as long as it continues making progress.
 // Retrieve will also verify the file's size after the transfer if the
 // server supports the SIZE command.
-func (c *client) Retrieve(path string, dest io.Writer) error {
+func (c *Client) Retrieve(path string, dest io.Writer) error {
 	// fetch file size to check against how much we transferred
 	size, err := c.size(path)
 	if err != nil {
@@ -359,7 +351,7 @@ func (c *client) Retrieve(path string, dest io.Writer) error {
 // resume an upload if the client is connected to multiple servers. Store
 // will also verify the remote file's size after the transfer if the server
 // supports the SIZE command.
-func (c *client) Store(path string, src io.Reader) error {
+func (c *Client) Store(path string, src io.Reader) error {
 
 	canResume := len(c.hosts) == 1 && c.canResume()
 
@@ -420,7 +412,7 @@ func (c *client) Store(path string, src io.Reader) error {
 	return nil
 }
 
-func (c *client) transferFromOffset(path string, dest io.Writer, src io.Reader, offset int64) (int64, error) {
+func (c *Client) transferFromOffset(path string, dest io.Writer, src io.Reader, offset int64) (int64, error) {
 	pconn, err := c.getIdleConn()
 	if err != nil {
 		return 0, err
@@ -433,7 +425,7 @@ func (c *client) transferFromOffset(path string, dest io.Writer, src io.Reader, 
 	}
 
 	if offset > 0 {
-		err := pconn.sendCommandExpected(ReplyFileActionPending, "REST %d", offset)
+		err := pconn.sendCommandExpected(replyFileActionPending, "REST %d", offset)
 		if err != nil {
 			return 0, err
 		}
@@ -459,7 +451,7 @@ func (c *client) transferFromOffset(path string, dest io.Writer, src io.Reader, 
 		panic("this shouldn't happen")
 	}
 
-	err = pconn.sendCommandExpected(ReplyGroupPreliminaryReply, "%s %s", cmd, path)
+	err = pconn.sendCommandExpected(replyGroupPreliminaryReply, "%s %s", cmd, path)
 	if err != nil {
 		return 0, err
 	}
@@ -490,7 +482,8 @@ func (c *client) transferFromOffset(path string, dest io.Writer, src io.Reader, 
 	return n, nil
 }
 
-func (c *client) NameList(path string) ([]string, error) {
+// Retrieve a listing of file names in directory "path".
+func (c *Client) NameList(path string) ([]string, error) {
 	pconn, err := c.getIdleConn()
 	if err != nil {
 		return nil, err
@@ -507,7 +500,7 @@ func (c *client) NameList(path string) ([]string, error) {
 	// to catch early returns
 	defer dc.Close()
 
-	err = pconn.sendCommandExpected(ReplyGroupPreliminaryReply, "NLST %s", path)
+	err = pconn.sendCommandExpected(replyGroupPreliminaryReply, "NLST %s", path)
 
 	if err != nil {
 		return nil, err

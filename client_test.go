@@ -125,7 +125,7 @@ func TestNameList(t *testing.T) {
 			t.Errorf("Got %v", list)
 		}
 
-		if int(c.(*client).numOpenConns) != len(c.(*client).freeConnCh) {
+		if int(c.numOpenConns) != len(c.freeConnCh) {
 			t.Error("Leaked a connection")
 		}
 	}
@@ -159,7 +159,7 @@ func TestRetrieve(t *testing.T) {
 			t.Errorf("Got %v", buf.Bytes())
 		}
 
-		if int(c.(*client).numOpenConns) != len(c.(*client).freeConnCh) {
+		if int(c.numOpenConns) != len(c.freeConnCh) {
 			t.Error("Leaked a connection")
 		}
 	}
@@ -210,7 +210,7 @@ func TestResumeRetrieveOnWriteError(t *testing.T) {
 			t.Errorf("Got %v", buf.writes)
 		}
 
-		if int(c.(*client).numOpenConns) != len(c.(*client).freeConnCh) {
+		if int(c.numOpenConns) != len(c.freeConnCh) {
 			t.Error("Leaked a connection")
 		}
 	}
@@ -235,7 +235,7 @@ func TestResumeRetrieveOnReadError(t *testing.T) {
 				// close all the connections, then reset closed so we
 				// can keep using this client
 				c.Close()
-				c.(*client).closed = false
+				c.closed = false
 				return 2, errors.New("too many bytes to handle!")
 			}
 		}
@@ -250,7 +250,7 @@ func TestResumeRetrieveOnReadError(t *testing.T) {
 			t.Errorf("Got %v", buf.writes)
 		}
 
-		if int(c.(*client).numOpenConns) != len(c.(*client).freeConnCh) {
+		if int(c.numOpenConns) != len(c.freeConnCh) {
 			t.Error("Leaked a connection")
 		}
 	}
@@ -277,7 +277,7 @@ func TestTimeoutConnect(t *testing.T) {
 		t.Errorf("Timeout of 100ms was off by %s", offBy)
 	}
 
-	if int(c.(*client).numOpenConns) != len(c.(*client).freeConnCh) {
+	if int(c.numOpenConns) != len(c.freeConnCh) {
 		t.Error("Leaked a connection")
 	}
 }
@@ -312,7 +312,7 @@ func TestStore(t *testing.T) {
 			t.Errorf("Got %v", stored)
 		}
 
-		if int(c.(*client).numOpenConns) != len(c.(*client).freeConnCh) {
+		if int(c.numOpenConns) != len(c.freeConnCh) {
 			t.Error("Leaked a connection")
 		}
 	}
@@ -371,7 +371,7 @@ func TestResumeStoreOnWriteError(t *testing.T) {
 				if readSoFar > 5*1024*1024 && !closed {
 					// close all connections half way through upload
 					c.Close()
-					c.(*client).closed = false
+					c.closed = false
 					closed = true
 				}
 			},
@@ -394,7 +394,7 @@ func TestResumeStoreOnWriteError(t *testing.T) {
 			t.Errorf("buf was %d, stored was %d", len(buf), len(stored))
 		}
 
-		if int(c.(*client).numOpenConns) != len(c.(*client).freeConnCh) {
+		if int(c.numOpenConns) != len(c.freeConnCh) {
 			t.Error("Leaked a connection")
 		}
 	}
@@ -424,7 +424,7 @@ func TestExplicitFTPS(t *testing.T) {
 			t.Errorf("Got %v", buf.Bytes())
 		}
 
-		if int(c.(*client).numOpenConns) != len(c.(*client).freeConnCh) {
+		if int(c.numOpenConns) != len(c.freeConnCh) {
 			t.Error("Leaked a connection")
 		}
 	}

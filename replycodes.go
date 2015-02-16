@@ -7,59 +7,59 @@ package goftp
 // Taken from https://www.ietf.org/rfc/rfc959.txt
 
 const (
-	ReplyGroupPreliminaryReply   = 1
-	ReplyGroupPositiveCompletion = 2
+	replyGroupPreliminaryReply   = 1
+	replyGroupPositiveCompletion = 2
 
 	// positive preliminary replies
-	ReplyRestartMarker             = 110 // Restart marker reply
-	ReplyReadyInNMinutes           = 120 // Service ready in nnn minutes
-	ReplyDataConnectionAlreadyOpen = 125 // (transfer starting)
-	ReplyFileStatusOkay            = 150 // (about to open data connection)
+	replyRestartMarker             = 110 // Restart marker reply
+	replyReadyInNMinutes           = 120 // Service ready in nnn minutes
+	replyDataConnectionAlreadyOpen = 125 // (transfer starting)
+	replyFileStatusOkay            = 150 // (about to open data connection)
 
 	// positive completion replies
-	ReplyCommandOkay                 = 200
-	ReplyCommandOkayNotImplemented   = 202
-	ReplySystemStatus                = 211 // or system help reply
-	ReplyDirectoryStatus             = 212
-	ReplyFileStatus                  = 213
-	ReplyHelpMessage                 = 214
-	ReplySystemType                  = 215
-	ReplyServiceReady                = 220
-	ReplyClosingControlConnection    = 221
-	ReplyDataConnectionOpen          = 225 // (no transfer in progress)
-	ReplyClosingDataConnection       = 226 // requested file action successful
-	ReplyEnteringPassiveMode         = 227
-	ReplyEnteringExtendedPassiveMode = 229
-	ReplyUserLoggedIn                = 230
-	ReplyAuthOkayNoDataNeeded        = 234
-	ReplyFileActionOkay              = 250 // (completed)
-	ReplyDirCreated                  = 257
+	replyCommandOkay                 = 200
+	replyCommandOkayNotImplemented   = 202
+	replySystemStatus                = 211 // or system help reply
+	replyDirectoryStatus             = 212
+	replyFileStatus                  = 213
+	replyHelpMessage                 = 214
+	replySystemType                  = 215
+	replyServiceReady                = 220
+	replyClosingControlConnection    = 221
+	replyDataConnectionOpen          = 225 // (no transfer in progress)
+	replyClosingDataConnection       = 226 // requested file action successful
+	replyEnteringPassiveMode         = 227
+	replyEnteringExtendedPassiveMode = 229
+	replyUserLoggedIn                = 230
+	replyAuthOkayNoDataNeeded        = 234
+	replyFileActionOkay              = 250 // (completed)
+	replyDirCreated                  = 257
 
 	// positive intermediate replies
-	ReplyNeedPassword      = 331
-	ReplyNeedAccount       = 332
-	ReplyFileActionPending = 350 // pending further information
+	replyNeedPassword      = 331
+	replyNeedAccount       = 332
+	replyFileActionPending = 350 // pending further information
 
 	// transient negative completion replies
-	ReplyServiceNotAvailable    = 421 // (service shutting down)
-	ReplyCantOpenDataConnection = 425
-	ReplyConnectionClosed       = 426 // (transfer aborted)
-	ReplyTransientFileError     = 450 // (file unavailable)
-	ReplyLocalError             = 451 // action aborted
-	ReplyOutOfSpace             = 452 // action not taken
+	replyServiceNotAvailable    = 421 // (service shutting down)
+	replyCantOpenDataConnection = 425
+	replyConnectionClosed       = 426 // (transfer aborted)
+	replyTransientFileError     = 450 // (file unavailable)
+	replyLocalError             = 451 // action aborted
+	replyOutOfSpace             = 452 // action not taken
 
 	// permanenet negative completion replies
-	ReplyCommandSyntaxError                = 500
-	ReplyParameterSyntaxError              = 501
-	ReplyCommandNotImplemented             = 502
-	ReplyBadCommandSequence                = 503
-	ReplyCommandNotImplementedForParameter = 504
-	ReplyNotLoggedIn                       = 530
-	ReplyNeedAccountToStore                = 532
-	ReplyFileError                         = 550 // file not found, no access
-	ReplyPageTypeUnknown                   = 551
-	ReplyExceededStorageAllocation         = 552 // for current directory/dataset
-	ReplyBadFileName                       = 553
+	replyCommandSyntaxError                = 500
+	replyParameterSyntaxError              = 501
+	replyCommandNotImplemented             = 502
+	replyBadCommandSequence                = 503
+	replyCommandNotImplementedForParameter = 504
+	replyNotLoggedIn                       = 530
+	replyNeedAccountToStore                = 532
+	replyFileError                         = 550 // file not found, no access
+	replyPageTypeUnknown                   = 551
+	replyExceededStorageAllocation         = 552 // for current directory/dataset
+	replyBadFileName                       = 553
 )
 
 func positiveCompletionReply(code int) bool {

@@ -2,6 +2,11 @@
 // Use of this source code is governed by a MIT-style
 // license that can be found in the LICENSE file.
 
+/*
+goftp is an FTP client for go. It's aim is to be simple to use, while providing
+more advanced features under the hood like connection pooling for concurrent
+downloads, and automatic resumption of interrupted uploads and downloads.
+*/
 package goftp
 
 import (
@@ -13,7 +18,7 @@ import (
 
 // Create an FTP client using the default config. See DialConfig for
 // information about "hosts".
-func Dial(hosts ...string) (Conn, error) {
+func Dial(hosts ...string) (*Client, error) {
 	return DialConfig(Config{}, hosts...)
 }
 
@@ -22,7 +27,7 @@ func Dial(hosts ...string) (Conn, error) {
 // Hostnames will be expanded to all the IP addresses they resolve to. The
 // client's connection pool will pick from all the addresses in a round-robin
 // fashion.
-func DialConfig(config Config, hosts ...string) (Conn, error) {
+func DialConfig(config Config, hosts ...string) (*Client, error) {
 	expandedHosts, err := lookupHosts(hosts)
 	if err != nil {
 		return nil, err

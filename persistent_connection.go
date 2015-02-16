@@ -66,7 +66,7 @@ func (pconn *persistentConn) sendCommandExpected(expected int, f string, args ..
 
 	var ok bool
 	switch expected {
-	case ReplyGroupPositiveCompletion, ReplyGroupPreliminaryReply:
+	case replyGroupPositiveCompletion, replyGroupPreliminaryReply:
 		ok = code/100 == expected
 	default:
 		ok = code == expected
@@ -175,7 +175,7 @@ func (pconn *persistentConn) logIn() error {
 		return err
 	}
 
-	if code == ReplyNeedPassword {
+	if code == replyNeedPassword {
 		code, msg, err = pconn.sendCommand("PASS %s", pconn.config.Password)
 		if err != nil {
 			return err
@@ -207,7 +207,7 @@ func (pconn *persistentConn) requestPassive() (string, error) {
 		return "", err
 	}
 
-	if code != ReplyEnteringExtendedPassiveMode {
+	if code != replyEnteringExtendedPassiveMode {
 		pconn.debug("server doesn't support EPSV: %d-%s", code, msg)
 		goto PASV
 	}
@@ -234,7 +234,7 @@ func (pconn *persistentConn) requestPassive() (string, error) {
 	return fmt.Sprintf("[%s]:%d", remoteHost, port), nil
 
 PASV:
-	err = pconn.sendCommandExpected(ReplyEnteringPassiveMode, "PASV")
+	err = pconn.sendCommandExpected(replyEnteringPassiveMode, "PASV")
 	if err != nil {
 		return "", fmt.Errorf("error requesting PASV: %s", err)
 	}
@@ -305,11 +305,11 @@ func (pconn *persistentConn) openDataConn() (net.Conn, error) {
 }
 
 func (pconn *persistentConn) setType(t string) error {
-	return pconn.sendCommandExpected(ReplyCommandOkay, "TYPE %s", t)
+	return pconn.sendCommandExpected(replyCommandOkay, "TYPE %s", t)
 }
 
 func (pconn *persistentConn) logInTLS() error {
-	err := pconn.sendCommandExpected(ReplyAuthOkayNoDataNeeded, "AUTH TLS")
+	err := pconn.sendCommandExpected(replyAuthOkayNoDataNeeded, "AUTH TLS")
 	if err != nil {
 		return err
 	}
@@ -321,12 +321,12 @@ func (pconn *persistentConn) logInTLS() error {
 		return err
 	}
 
-	err = pconn.sendCommandExpected(ReplyGroupPositiveCompletion, "PBSZ 0")
+	err = pconn.sendCommandExpected(replyGroupPositiveCompletion, "PBSZ 0")
 	if err != nil {
 		return err
 	}
 
-	err = pconn.sendCommandExpected(ReplyGroupPositiveCompletion, "PROT P")
+	err = pconn.sendCommandExpected(replyGroupPositiveCompletion, "PROT P")
 	if err != nil {
 		return err
 	}
