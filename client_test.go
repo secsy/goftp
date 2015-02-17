@@ -15,7 +15,6 @@ import (
 	"net"
 	"os"
 	"reflect"
-	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -96,42 +95,6 @@ func startPureFTPD(addrs []string, binary string) (func(), error) {
 	time.Sleep(100 * time.Millisecond)
 
 	return closer, nil
-}
-
-func TestNameList(t *testing.T) {
-	for _, addr := range ftpdAddrs {
-		c, err := Dial(addr)
-
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		list, err := c.NameList("")
-
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		sort.Strings(list)
-
-		if !reflect.DeepEqual([]string{"git-ignored", "lorem.txt", "subdir"}, list) {
-			t.Errorf("Got %v", list)
-		}
-
-		list, err = c.NameList("subdir")
-
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		if !reflect.DeepEqual([]string{"1234.bin"}, list) {
-			t.Errorf("Got %v", list)
-		}
-
-		if int(c.numOpenConns) != len(c.freeConnCh) {
-			t.Error("Leaked a connection")
-		}
-	}
 }
 
 func TestRetrieve(t *testing.T) {

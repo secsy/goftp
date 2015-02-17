@@ -87,6 +87,7 @@ func (pconn *persistentConn) sendCommand(f string, args ...interface{}) (int, st
 		logName = "PASS ******"
 	}
 
+	pconn.controlConn.SetWriteDeadline(time.Now().Add(pconn.config.Timeout))
 	err := pconn.writer.PrintfLine(cmd)
 
 	if err != nil {
