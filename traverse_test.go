@@ -85,7 +85,7 @@ func TestReadDir(t *testing.T) {
 				t.Errorf("%s expected %s, got %s", item.Name(), expected.Mode(), item.Mode())
 			}
 
-			if !item.ModTime().Equal(expected.ModTime()) {
+			if !item.ModTime().Equal(expected.ModTime().Truncate(time.Second)) {
 				t.Errorf("%s expected %s, got %s", item.Name(), expected.ModTime(), item.ModTime())
 			}
 
