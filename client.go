@@ -46,6 +46,13 @@ type Config struct {
 	// TLS. Defaults to TLSExplicit.
 	TLSMode TLSMode
 
+	// This flag controls whether to use IPv6 addresses found when resolving
+	// hostnames. Defaults to false to prevent failures when your computer can't
+	// IPv6. If the hostname(s) only resolve to IPv6 addresses, Dial() will still
+	// try to use them as a last ditch effort. You can still directly give an
+	// IPv6 address to Dial() even with this flag off.
+	IPv6Lookup bool
+
 	// Logging destination for debugging messages. Set to os.Stderr to log to stderr.
 	Logger io.Writer
 }

@@ -15,6 +15,42 @@ import (
 
 const timeFormat = "20060102150405"
 
+// Fetch the contents of a directory, returning a list of os.FileInfo's which
+// are relatively easy to work with programatically. It will not return
+// entries corresponding to the current directory or parent directories. This
+// function will only work with servers that support the "MLSD" feature.
+// FileInfo.Sys() will return the raw info string for the entry. If the server
+// does not provide the "UNIX.mode" fact, the Mode() will only have UNIX bits
+// set for "user" (i.e. nothing set for "group" or "user").
+func (c *Client) ReadDir(path string) ([]os.FileInfo, error) {
+	entries, err := c.stringList("MLSD", path)
+	if err != nil {
+		return nil, err
+	}
+
+	var ret []os.FileInfo
+	for _, entry := range entries {
+		info, err := parseMLST(entry)
+		if err != nil {
+			c.debug("error in ReadDir: %s", err)
+			return nil, err
+		}
+
+		if info == nil {
+			continue
+		}
+
+		ret = append(ret, info)
+	}
+
+	return ret, nil
+}
+
+// Retrieve a listing of file names in directory "path".
+func (c *Client) NameList(path string) ([]string, error) {
+	return c.stringList("NLST", path)
+}
+
 func (c *Client) stringList(cmd, path string) ([]string, error) {
 	pconn, err := c.getIdleConn()
 	if err != nil {
@@ -75,11 +111,6 @@ func (c *Client) stringList(cmd, path string) ([]string, error) {
 	return res, nil
 }
 
-// Retrieve a listing of file names in directory "path".
-func (c *Client) NameList(path string) ([]string, error) {
-	return c.stringList("NLST", path)
-}
-
 type ftpFile struct {
 	name  string
 	size  int64
@@ -111,37 +142,6 @@ func (f *ftpFile) IsDir() bool {
 
 func (f *ftpFile) Sys() interface{} {
 	return f.raw
-}
-
-// Fetch the contents of a directory, returning a list of os.FileInfo's which
-// are relatively easy to work with programatically. It will not return
-// entries corresponding to the current directory or parent directories. This
-// function will only work with servers that support the "MLSD" feature.
-// FileInfo.Sys() will return the raw info string for the entry. If the server
-// does not provide the "UNIX.mode" fact, the Mode() will only have UNIX bits
-// set for "user" (i.e. nothing set for "group" or "user").
-func (c *Client) ReadDir(path string) ([]os.FileInfo, error) {
-	entries, err := c.stringList("MLSD", path)
-	if err != nil {
-		return nil, err
-	}
-
-	var ret []os.FileInfo
-	for _, entry := range entries {
-		info, err := parseMLST(entry)
-		if err != nil {
-			c.debug("error in ReadDir: %s", err)
-			return nil, err
-		}
-
-		if info == nil {
-			continue
-		}
-
-		ret = append(ret, info)
-	}
-
-	return ret, nil
 }
 
 // an entry looks something like this:

@@ -29,7 +29,7 @@ func Dial(hosts ...string) (*Client, error) {
 // client's connection pool will pick from all the addresses in a round-robin
 // fashion.
 func DialConfig(config Config, hosts ...string) (*Client, error) {
-	expandedHosts, err := lookupHosts(hosts)
+	expandedHosts, err := lookupHosts(hosts, config.IPv6Lookup)
 	if err != nil {
 		return nil, err
 	}
@@ -39,12 +39,15 @@ func DialConfig(config Config, hosts ...string) (*Client, error) {
 
 var hasPort = regexp.MustCompile(`^[^:]+:\d+$|\]:\d+$`)
 
-func lookupHosts(hosts []string) ([]string, error) {
+func lookupHosts(hosts []string, ipv6Lookup bool) ([]string, error) {
 	if len(hosts) == 0 {
 		return nil, errors.New("must specify at least one host")
 	}
 
-	var ret []string
+	var (
+		ret  []string
+		ipv6 []string
+	)
 
 	for i, host := range hosts {
 		if !hasPort.MatchString(host) {
@@ -60,7 +63,7 @@ func lookupHosts(hosts []string) ([]string, error) {
 			ret = append(ret, host)
 		} else {
 			// not an IP, must be hostname
-			ips, err := net.LookupHost(hostnameOrIP)
+			ips, err := net.LookupIP(hostnameOrIP)
 
 			// consider not returning error if other hosts in the list work
 			if err != nil {
@@ -68,9 +71,20 @@ func lookupHosts(hosts []string) ([]string, error) {
 			}
 
 			for _, ip := range ips {
-				ret = append(ret, fmt.Sprintf("[%s]:%s", ip, port))
+				ipAndPort := fmt.Sprintf("[%s]:%s", ip.String(), port)
+				if ip.To4() == nil && !ipv6Lookup {
+					ipv6 = append(ipv6, ipAndPort)
+				} else {
+					ret = append(ret, ipAndPort)
+				}
 			}
 		}
+	}
+
+	// if you only found IPv6 addresses and IPv6Lookup was off, try them anyway
+	// just for kicks
+	if len(ret) == 0 && len(ipv6) > 0 {
+		return ipv6, nil
 	}
 
 	return ret, nil
