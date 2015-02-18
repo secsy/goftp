@@ -15,14 +15,21 @@ import (
 	"time"
 )
 
+// TLSMode represents the FTPS connection strategy. Servers cannot support
+// both modes on the same port.
 type TLSMode int
 
 const (
+	// TLSExplicit means the client first runs an explicit command ("AUTH TLS")
+	// before switching to TLS.
 	TLSExplicit TLSMode = 0
+
+	// TLSImplicit means both sides already implicitly agree to use TLS, and the
+	// client connects directly using TLS.
 	TLSImplicit TLSMode = 1
 )
 
-// Client configuration object.
+// Config contains configuration for a Client object.
 type Config struct {
 	// User name. Defaults to "anonymous".
 	User string
@@ -30,10 +37,12 @@ type Config struct {
 	// User password. Defaults to "anonymous" if required.
 	Password string
 
-	// Maximum number of FTP connections to open at once. Defaults to 5.
+	// Maximum number of FTP connections to open at once. Defaults to 5. Keep in
+	// mind that FTP servers typically limit how many connections a single client
+	// may have open at once.
 	MaxConnections int32
 
-	// Timeout for opening connections and sending individual commands. Defaults
+	// Timeout for opening connections and sending control commands. Defaults
 	// to 5 seconds.
 	Timeout time.Duration
 
@@ -54,9 +63,14 @@ type Config struct {
 	IPv6Lookup bool
 
 	// Logging destination for debugging messages. Set to os.Stderr to log to stderr.
+	// Password value will not be logged.
 	Logger io.Writer
 }
 
+// Client maintains a connection pool to the FTP server(s), so you typically only
+// need one Client object. Client methods are safe to call concurrently from
+// multiple goroutines, but once you are using all MaxConnections connections,
+// methods will block waiting for a free connection.
 type Client struct {
 	config       Config
 	hosts        []string
@@ -98,7 +112,7 @@ func newClient(config Config, hosts []string) *Client {
 	}
 }
 
-// Closes all open server connections. Currently this does not attempt
+// Close closes all open server connections. Currently this does not attempt
 // to do any kind of polite FTP connection termination. It will interrupt
 // all transfers in progress.
 func (c *Client) Close() error {
@@ -166,26 +180,28 @@ Loop:
 			c.connIdx++
 			idx := c.connIdx
 			c.mu.Unlock()
+
 			pconn, err := c.openConn(idx)
 			if err != nil {
 				c.debug("#%d error connecting: %s", idx, err)
 				atomic.AddInt32(&c.numOpenConns, -1)
 			}
 			return pconn, err
+		}
+
+		c.mu.Unlock()
+
+		// block waiting for a free connection
+		pconn := <-c.freeConnCh
+
+		if pconn.broken {
+			c.debug("waited and got #%d (broken)", pconn.idx)
+			atomic.AddInt32(&c.numOpenConns, -1)
+			c.removeConn(pconn)
 		} else {
-			c.mu.Unlock()
+			c.debug("waited and got #%d", pconn.idx)
+			return pconn, nil
 
-			// block waiting for a free connection
-			pconn := <-c.freeConnCh
-
-			if pconn.broken {
-				c.debug("waited and got #%d (broken)", pconn.idx)
-				atomic.AddInt32(&c.numOpenConns, -1)
-				c.removeConn(pconn)
-			} else {
-				c.debug("waited and got #%d", pconn.idx)
-				return pconn, nil
-			}
 		}
 	}
 }
@@ -231,14 +247,12 @@ func (c *Client) openConn(idx int) (pconn *persistentConn, err error) {
 
 	pconn.setControlConn(conn)
 
-	_, _, err = pconn.readResponse(replyServiceReady)
-	if err != nil {
+	if _, _, err = pconn.readResponse(replyServiceReady); err != nil {
 		goto Error
 	}
 
 	if c.config.TLSConfig != nil && c.config.TLSMode == TLSExplicit {
-		err = pconn.logInTLS()
-		if err != nil {
+		if err = pconn.logInTLS(); err != nil {
 			goto Error
 		}
 	} else {

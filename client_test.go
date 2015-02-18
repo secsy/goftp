@@ -49,7 +49,7 @@ func startPureFTPD(addrs []string, binary string) (func(), error) {
 	}
 
 	if _, err := os.Open(binary); os.IsNotExist(err) {
-		return nil, fmt.Errorf("%s not found! You need to run ./build_test_server.sh from the goftp directory.", binary)
+		return nil, fmt.Errorf("%s not found - you need to run ./build_test_server.sh from the goftp directory", binary)
 	}
 
 	cwd, err := os.Getwd()
@@ -161,9 +161,8 @@ func TestResumeRetrieveOnWriteError(t *testing.T) {
 		buf.cb = func(p []byte) (int, error) {
 			if len(p) <= 2 {
 				return len(p), nil
-			} else {
-				return 2, errors.New("too many bytes to handle!")
 			}
+			return 2, errors.New("too many bytes to handle")
 		}
 
 		err = c.Retrieve("subdir/1234.bin", buf)
@@ -197,13 +196,12 @@ func TestResumeRetrieveOnReadError(t *testing.T) {
 		buf.cb = func(p []byte) (int, error) {
 			if len(p) <= 2 {
 				return len(p), nil
-			} else {
-				// close all the connections, then reset closed so we
-				// can keep using this client
-				c.Close()
-				c.closed = false
-				return 2, errors.New("too many bytes to handle!")
 			}
+			// close all the connections, then reset closed so we
+			// can keep using this client
+			c.Close()
+			c.closed = false
+			return 2, errors.New("too many bytes to handle")
 		}
 
 		err = c.Retrieve("subdir/1234.bin", buf)

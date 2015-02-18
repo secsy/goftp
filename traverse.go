@@ -15,10 +15,10 @@ import (
 
 const timeFormat = "20060102150405"
 
-// Fetch the contents of a directory, returning a list of os.FileInfo's which
-// are relatively easy to work with programatically. It will not return
-// entries corresponding to the current directory or parent directories. This
-// function will only work with servers that support the "MLSD" feature.
+// ReadDir fetches the contents of a directory, returning a list of
+// os.FileInfo's which are relatively easy to work with programatically. It
+// will not return entries corresponding to the current directory or parent
+// directories. ReadDir only works with servers that support the "MLSD" feature.
 // FileInfo.Sys() will return the raw info string for the entry. If the server
 // does not provide the "UNIX.mode" fact, the Mode() will only have UNIX bits
 // set for "user" (i.e. nothing set for "group" or "user").
@@ -46,7 +46,8 @@ func (c *Client) ReadDir(path string) ([]os.FileInfo, error) {
 	return ret, nil
 }
 
-// Retrieve a listing of file names in directory "path".
+// NameList fetches the contents of directory "path". If supported, ReadDir
+// should be preferred over NameList.
 func (c *Client) NameList(path string) ([]string, error) {
 	return c.stringList("NLST", path)
 }

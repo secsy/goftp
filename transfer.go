@@ -47,7 +47,7 @@ func (c *Client) Retrieve(path string, dest io.Writer) error {
 	return nil
 }
 
-// Read bytes from "src" and save as file "path" on the server. If the
+// Store bytes read from "src" into file "path" on the server. If the
 // server supports resuming stream transfers and "src" is an io.Seeker
 // (*os.File is an io.Seeker), Store will continue resuming a failed upload
 // as long as it continues making progress. Store will not attempt to
@@ -208,15 +208,15 @@ func (c *Client) size(path string) (int64, error) {
 	if code != replyFileStatus {
 		pconn.debug("unexpected SIZE response: %d (%s)", code, msg)
 		return -1, nil
-	} else {
-		size, err := strconv.ParseInt(msg, 10, 64)
-		if err != nil {
-			pconn.debug(`failed parsing SIZE response "%s": %s`, msg, err)
-			return -1, nil
-		} else {
-			return size, nil
-		}
 	}
+
+	size, err := strconv.ParseInt(msg, 10, 64)
+	if err != nil {
+		pconn.debug(`failed parsing SIZE response "%s": %s`, msg, err)
+		return -1, nil
+	}
+
+	return size, nil
 }
 
 func (c *Client) canResume() bool {
