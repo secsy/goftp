@@ -8,6 +8,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -18,19 +19,19 @@ const timeFormat = "20060102150405"
 // ReadDir fetches the contents of a directory, returning a list of
 // os.FileInfo's which are relatively easy to work with programatically. It
 // will not return entries corresponding to the current directory or parent
-// directories. ReadDir only works with servers that support the "MLSD" feature.
+// directories. ReadDir only works with servers that support the "MLST" feature.
 // FileInfo.Sys() will return the raw info string for the entry. If the server
 // does not provide the "UNIX.mode" fact, the Mode() will only have UNIX bits
 // set for "user" (i.e. nothing set for "group" or "user").
 func (c *Client) ReadDir(path string) ([]os.FileInfo, error) {
-	entries, err := c.stringList("MLSD", path)
+	entries, err := c.dataStringList("MLSD %s", path)
 	if err != nil {
 		return nil, err
 	}
 
 	var ret []os.FileInfo
 	for _, entry := range entries {
-		info, err := parseMLST(entry)
+		info, err := parseMLST(entry, true)
 		if err != nil {
 			c.debug("error in ReadDir: %s", err)
 			return nil, err
@@ -46,13 +47,50 @@ func (c *Client) ReadDir(path string) ([]os.FileInfo, error) {
 	return ret, nil
 }
 
+// Stat fetches details for a particular file. Stat requires the server to
+// support the "MLST" feature.  If the server does not provide the "UNIX.mode"
+// fact, the Mode() will only have UNIX bits set for "user" (i.e. nothing set
+// for "group" or "user").
+func (c *Client) Stat(path string) (os.FileInfo, error) {
+	lines, err := c.controlStringList("MLST %s", path)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(lines) != 3 {
+		return nil, fmt.Errorf("unexpected MLST response: %v", lines)
+	}
+
+	return parseMLST(strings.TrimLeft(lines[1], " "), false)
+}
+
 // NameList fetches the contents of directory "path". If supported, ReadDir
 // should be preferred over NameList.
 func (c *Client) NameList(path string) ([]string, error) {
-	return c.stringList("NLST", path)
+	return c.dataStringList("NLST %s", path)
 }
 
-func (c *Client) stringList(cmd, path string) ([]string, error) {
+func (c *Client) controlStringList(f string, args ...interface{}) ([]string, error) {
+	pconn, err := c.getIdleConn()
+	if err != nil {
+		return nil, err
+	}
+
+	defer c.returnConn(pconn)
+
+	cmd := fmt.Sprintf(f, args...)
+
+	code, msg, err := pconn.sendCommand(cmd)
+
+	if !positiveCompletionReply(code) {
+		pconn.debug("unexpected response to %s: %d-%s", cmd, code, msg)
+		return nil, fmt.Errorf("unexpected response to %s: %d-%s", cmd, code, msg)
+	}
+
+	return strings.Split(msg, "\n"), nil
+}
+
+func (c *Client) dataStringList(f string, args ...interface{}) ([]string, error) {
 	pconn, err := c.getIdleConn()
 	if err != nil {
 		return nil, err
@@ -69,7 +107,9 @@ func (c *Client) stringList(cmd, path string) ([]string, error) {
 	// to catch early returns
 	defer dc.Close()
 
-	err = pconn.sendCommandExpected(replyGroupPreliminaryReply, "%s %s", cmd, path)
+	cmd := fmt.Sprintf(f, args...)
+
+	err = pconn.sendCommandExpected(replyGroupPreliminaryReply, cmd)
 
 	if err != nil {
 		return nil, err
@@ -117,7 +157,6 @@ type ftpFile struct {
 	size  int64
 	mode  os.FileMode
 	mtime time.Time
-	isDir bool
 	raw   string
 }
 
@@ -138,7 +177,7 @@ func (f *ftpFile) ModTime() time.Time {
 }
 
 func (f *ftpFile) IsDir() bool {
-	return f.isDir
+	return f.mode.IsDir()
 }
 
 func (f *ftpFile) Sys() interface{} {
@@ -147,7 +186,7 @@ func (f *ftpFile) Sys() interface{} {
 
 // an entry looks something like this:
 // type=file;size=12;modify=20150216084148;UNIX.mode=0644;unique=1000004g1187ec7; lorem.txt
-func parseMLST(entry string) (os.FileInfo, error) {
+func parseMLST(entry string, skipSelfParent bool) (os.FileInfo, error) {
 	parseError := fmt.Errorf(`failed parsing MLSD entry: %s`, entry)
 	incompleteError := fmt.Errorf(`MLSD entry incomplete: %s`, entry)
 
@@ -165,33 +204,14 @@ func parseMLST(entry string) (os.FileInfo, error) {
 		facts[strings.ToLower(factParts[0])] = strings.ToLower(factParts[1])
 	}
 
-	if facts["type"] == "" {
+	typ := facts["type"]
+
+	if typ == "" {
 		return nil, incompleteError
 	}
 
-	if facts["type"] == "cdir" || facts["type"] == "pdir" || parts[1] == "." || parts[1] == ".." {
+	if skipSelfParent && (typ == "cdir" || typ == "pdir" || typ == "." || typ == "..") {
 		return nil, nil
-	}
-
-	var (
-		size int64
-		err  error
-	)
-	if facts["size"] != "" {
-		size, err = strconv.ParseInt(facts["size"], 10, 64)
-	} else if facts["type"] == "dir" && facts["sizd"] != "" {
-		size, err = strconv.ParseInt(facts["sizd"], 10, 64)
-	} else if facts["type"] == "file" {
-		return nil, incompleteError
-	}
-
-	if facts["modify"] == "" {
-		return nil, incompleteError
-	}
-
-	mtime, err := time.ParseInLocation(timeFormat, facts["modify"], time.UTC)
-	if err != nil {
-		return nil, incompleteError
 	}
 
 	var mode os.FileMode
@@ -220,15 +240,36 @@ func parseMLST(entry string) (os.FileInfo, error) {
 		return nil, incompleteError
 	}
 
-	if facts["type"] == "dir" {
+	if typ == "dir" || typ == "cdir" || typ == "pdir" {
 		mode |= os.ModeDir
 	}
 
+	var (
+		size int64
+		err  error
+	)
+
+	if facts["size"] != "" {
+		size, err = strconv.ParseInt(facts["size"], 10, 64)
+	} else if mode.IsDir() && facts["sizd"] != "" {
+		size, err = strconv.ParseInt(facts["sizd"], 10, 64)
+	} else if facts["type"] == "file" {
+		return nil, incompleteError
+	}
+
+	if facts["modify"] == "" {
+		return nil, incompleteError
+	}
+
+	mtime, err := time.ParseInLocation(timeFormat, facts["modify"], time.UTC)
+	if err != nil {
+		return nil, incompleteError
+	}
+
 	info := &ftpFile{
-		name:  parts[1],
+		name:  filepath.Base(parts[1]),
 		size:  size,
 		mtime: mtime,
-		isDir: facts["type"] == "dir",
 		raw:   entry,
 		mode:  mode,
 	}

@@ -5,6 +5,7 @@
 package goftp
 
 import (
+	"fmt"
 	"os"
 	"reflect"
 	"sort"
@@ -32,7 +33,6 @@ func TestParseMLST(t *testing.T) {
 				name:  "files",
 				mtime: mustParseTime(timeFormat, "19991014192630"),
 				mode:  os.FileMode(0755) | os.ModeDir,
-				isDir: true,
 			},
 		},
 	}
@@ -40,7 +40,7 @@ func TestParseMLST(t *testing.T) {
 	for _, c := range cases {
 		c.exp.raw = c.raw
 
-		got, err := parseMLST(c.raw)
+		got, err := parseMLST(c.raw, false)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -49,6 +49,30 @@ func TestParseMLST(t *testing.T) {
 			t.Errorf("exp %+v\n got %+v", c.exp, gotFile)
 		}
 	}
+}
+
+func compareFileInfos(a, b os.FileInfo) error {
+	if a.Name() != b.Name() {
+		return fmt.Errorf("Name(): %s != %s", a.Name(), b.Name())
+	}
+
+	if a.Size() != b.Size() {
+		return fmt.Errorf("Size(): %d != %d", a.Size(), b.Size())
+	}
+
+	if a.Mode() != b.Mode() {
+		return fmt.Errorf("Mode(): %s != %s", a.Mode(), b.Mode())
+	}
+
+	if !a.ModTime().Truncate(time.Second).Equal(b.ModTime().Truncate(time.Second)) {
+		return fmt.Errorf("ModTime() %s != %s", a.ModTime(), b.ModTime())
+	}
+
+	if a.IsDir() != b.IsDir() {
+		return fmt.Errorf("IsDir(): %s != %s", a.IsDir(), b.IsDir())
+	}
+
+	return nil
 }
 
 func TestReadDir(t *testing.T) {
@@ -77,20 +101,8 @@ func TestReadDir(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			if item.Size() != expected.Size() {
-				t.Errorf("%s expected %d, got %d", item.Name(), expected.Size(), item.Size())
-			}
-
-			if item.Mode() != expected.Mode() {
-				t.Errorf("%s expected %s, got %s", item.Name(), expected.Mode(), item.Mode())
-			}
-
-			if !item.ModTime().Equal(expected.ModTime().Truncate(time.Second)) {
-				t.Errorf("%s expected %s, got %s", item.Name(), expected.ModTime(), item.ModTime())
-			}
-
-			if item.IsDir() != expected.IsDir() {
-				t.Errorf("%s expected %s, got %s", item.Name(), expected.IsDir(), item.IsDir())
+			if err := compareFileInfos(item, expected); err != nil {
+				t.Errorf("mismatch on %s: %s", item.Name(), err)
 			}
 
 			names = append(names, item.Name())
@@ -132,6 +144,65 @@ func TestNameList(t *testing.T) {
 
 		if !reflect.DeepEqual([]string{"1234.bin"}, list) {
 			t.Errorf("Got %v", list)
+		}
+
+		if int(c.numOpenConns) != len(c.freeConnCh) {
+			t.Error("Leaked a connection")
+		}
+	}
+}
+
+func TestState(t *testing.T) {
+	for _, addr := range ftpdAddrs {
+		c, err := Dial(addr)
+
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// check root
+		info, err := c.Stat("")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		realStat, err := os.Stat("testroot/.")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if err := compareFileInfos(info, realStat); err != nil {
+			t.Error(err)
+		}
+
+		// check a file
+		info, err = c.Stat("subdir/1234.bin")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		realStat, err = os.Stat("testroot/subdir/1234.bin")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if err := compareFileInfos(info, realStat); err != nil {
+			t.Error(err)
+		}
+
+		// check a directory
+		info, err = c.Stat("subdir")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		realStat, err = os.Stat("testroot/subdir")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if err := compareFileInfos(info, realStat); err != nil {
+			t.Error(err)
 		}
 
 		if int(c.numOpenConns) != len(c.freeConnCh) {
