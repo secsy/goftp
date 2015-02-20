@@ -69,3 +69,7 @@ func positiveCompletionReply(code int) bool {
 func positivePreliminaryReply(code int) bool {
 	return code/100 == 1
 }
+
+func transientNegativeCompletionReply(code int) bool {
+	return code/100 == 4
+}

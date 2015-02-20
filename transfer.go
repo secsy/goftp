@@ -36,12 +36,18 @@ func (c *Client) Retrieve(path string, dest io.Writer) error {
 		} else if n == 0 {
 			return err
 		} else if !canResume {
-			return fmt.Errorf("%s (can't resume)", err)
+			return ftpError{
+				err:       fmt.Errorf("%s (can't resume)", err),
+				temporary: true,
+			}
 		}
 	}
 
 	if size != -1 && bytesSoFar != size {
-		return fmt.Errorf("expected %d bytes, got %d", size, bytesSoFar)
+		return ftpError{
+			err:       fmt.Errorf("expected %d bytes, got %d", size, bytesSoFar),
+			temporary: true,
+		}
 	}
 
 	return nil
@@ -70,22 +76,31 @@ func (c *Client) Store(path string, src io.Reader) error {
 	)
 	for {
 		if bytesSoFar > 0 {
-			size, err := c.size(path)
-			if err != nil {
-				return err
+			size, sizeErr := c.size(path)
+			if sizeErr != nil {
+				return ftpError{
+					err:       sizeErr,
+					temporary: true,
+				}
 			}
 			if size == -1 {
-				return fmt.Errorf("%s (resume failed)", err)
+				return ftpError{
+					err:       fmt.Errorf("%s (resume failed)", err),
+					temporary: true,
+				}
 			}
 
 			_, seekErr := seeker.Seek(size, os.SEEK_SET)
 			if seekErr != nil {
 				c.debug("failed seeking to %d while resuming upload to %s: %s",
-					size+1,
+					size,
 					path,
 					err,
 				)
-				return fmt.Errorf("%s (resume failed)", err)
+				return ftpError{
+					err:       fmt.Errorf("%s (resume failed)", err),
+					temporary: true,
+				}
 			}
 			bytesSoFar = size
 		}
@@ -97,9 +112,15 @@ func (c *Client) Store(path string, src io.Reader) error {
 		if err == nil {
 			break
 		} else if n == 0 {
-			return err
+			return ftpError{
+				err:       err,
+				temporary: true,
+			}
 		} else if !canResume {
-			return fmt.Errorf("%s (can't resume)", err)
+			return ftpError{
+				err:       fmt.Errorf("%s (can't resume)", err),
+				temporary: true,
+			}
 		}
 	}
 
@@ -109,7 +130,10 @@ func (c *Client) Store(path string, src io.Reader) error {
 		return err
 	}
 	if size != -1 && size != bytesSoFar {
-		return fmt.Errorf("sent %d bytes, but size is %d", bytesSoFar, size)
+		return ftpError{
+			err:       fmt.Errorf("sent %d bytes, but size is %d", bytesSoFar, size),
+			temporary: true,
+		}
 	}
 
 	return nil
@@ -171,7 +195,7 @@ func (c *Client) transferFromOffset(path string, dest io.Writer, src io.Reader, 
 		pconn.debug("error closing data connection: %s", err)
 	}
 
-	code, msg, err := pconn.readResponse(0)
+	code, msg, err := pconn.readResponse()
 	if err != nil {
 		pconn.debug("error reading response after %s: %s", cmd, err)
 		return n, err
@@ -179,7 +203,7 @@ func (c *Client) transferFromOffset(path string, dest io.Writer, src io.Reader, 
 
 	if !positiveCompletionReply(code) {
 		pconn.debug("unexpected response after %s: %d (%s)", cmd, code, msg)
-		return n, fmt.Errorf("unexpected response after %s: %d (%s)", cmd, code, msg)
+		return n, ftpError{code: code, msg: msg}
 	}
 
 	return n, nil

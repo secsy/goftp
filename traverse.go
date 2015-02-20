@@ -14,6 +14,7 @@ import (
 	"time"
 )
 
+// time.Parse format string for parsing file mtimes.
 const timeFormat = "20060102150405"
 
 // ReadDir fetches the contents of a directory, returning a list of
@@ -22,7 +23,7 @@ const timeFormat = "20060102150405"
 // directories. ReadDir only works with servers that support the "MLST" feature.
 // FileInfo.Sys() will return the raw info string for the entry. If the server
 // does not provide the "UNIX.mode" fact, the Mode() will only have UNIX bits
-// set for "user" (i.e. nothing set for "group" or "user").
+// set for "user" (i.e. nothing set for "group" or "world").
 func (c *Client) ReadDir(path string) ([]os.FileInfo, error) {
 	entries, err := c.dataStringList("MLSD %s", path)
 	if err != nil {
@@ -50,7 +51,7 @@ func (c *Client) ReadDir(path string) ([]os.FileInfo, error) {
 // Stat fetches details for a particular file. Stat requires the server to
 // support the "MLST" feature.  If the server does not provide the "UNIX.mode"
 // fact, the Mode() will only have UNIX bits set for "user" (i.e. nothing set
-// for "group" or "user").
+// for "group" or "world").
 func (c *Client) Stat(path string) (os.FileInfo, error) {
 	lines, err := c.controlStringList("MLST %s", path)
 	if err != nil {
@@ -58,7 +59,7 @@ func (c *Client) Stat(path string) (os.FileInfo, error) {
 	}
 
 	if len(lines) != 3 {
-		return nil, fmt.Errorf("unexpected MLST response: %v", lines)
+		return nil, ftpError{err: fmt.Errorf("unexpected MLST response: %v", lines)}
 	}
 
 	return parseMLST(strings.TrimLeft(lines[1], " "), false)
@@ -84,7 +85,7 @@ func (c *Client) controlStringList(f string, args ...interface{}) ([]string, err
 
 	if !positiveCompletionReply(code) {
 		pconn.debug("unexpected response to %s: %d-%s", cmd, code, msg)
-		return nil, fmt.Errorf("unexpected response to %s: %d-%s", cmd, code, msg)
+		return nil, ftpError{code: code, msg: msg}
 	}
 
 	return strings.Split(msg, "\n"), nil
@@ -100,7 +101,6 @@ func (c *Client) dataStringList(f string, args ...interface{}) ([]string, error)
 
 	dc, err := pconn.openDataConn()
 	if err != nil {
-		pconn.debug("error opening data connection: %s", err)
 		return nil, err
 	}
 
@@ -126,7 +126,10 @@ func (c *Client) dataStringList(f string, args ...interface{}) ([]string, error)
 	var dataError error
 	if err = scanner.Err(); err != nil {
 		pconn.debug("error reading %s data: %s", cmd, err)
-		dataError = fmt.Errorf("error reading %s data: %s", cmd, err)
+		dataError = ftpError{
+			err:       fmt.Errorf("error reading %s data: %s", cmd, err),
+			temporary: true,
+		}
 	}
 
 	err = dc.Close()
@@ -134,7 +137,7 @@ func (c *Client) dataStringList(f string, args ...interface{}) ([]string, error)
 		pconn.debug("error closing data connection: %s", err)
 	}
 
-	code, msg, err := pconn.readResponse(0)
+	code, msg, err := pconn.readResponse()
 	if err != nil {
 		pconn.debug("error reading response: %s", err)
 		return nil, err
@@ -142,7 +145,7 @@ func (c *Client) dataStringList(f string, args ...interface{}) ([]string, error)
 
 	if !positiveCompletionReply(code) {
 		pconn.debug("unexpected result: %d-%s", code, msg)
-		return nil, fmt.Errorf("unexpected result: %d (%s)", code, msg)
+		return nil, ftpError{code: code, msg: msg}
 	}
 
 	if dataError != nil {
@@ -187,8 +190,8 @@ func (f *ftpFile) Sys() interface{} {
 // an entry looks something like this:
 // type=file;size=12;modify=20150216084148;UNIX.mode=0644;unique=1000004g1187ec7; lorem.txt
 func parseMLST(entry string, skipSelfParent bool) (os.FileInfo, error) {
-	parseError := fmt.Errorf(`failed parsing MLSD entry: %s`, entry)
-	incompleteError := fmt.Errorf(`MLSD entry incomplete: %s`, entry)
+	parseError := ftpError{err: fmt.Errorf(`failed parsing MLSD entry: %s`, entry)}
+	incompleteError := ftpError{err: fmt.Errorf(`MLSD entry incomplete: %s`, entry)}
 
 	parts := strings.Split(entry, "; ")
 	if len(parts) != 2 {

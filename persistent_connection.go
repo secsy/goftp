@@ -73,7 +73,7 @@ func (pconn *persistentConn) sendCommandExpected(expected int, f string, args ..
 	}
 
 	if !ok {
-		return fmt.Errorf("unexpected response: %d-%s", code, msg)
+		return ftpError{code: code, msg: msg}
 	}
 
 	return nil
@@ -87,19 +87,23 @@ func (pconn *persistentConn) sendCommand(f string, args ...interface{}) (int, st
 		logName = "PASS ******"
 	}
 
+	pconn.debug("sending command %s", logName)
+
 	pconn.controlConn.SetWriteDeadline(time.Now().Add(pconn.config.Timeout))
 	err := pconn.writer.PrintfLine(cmd)
 
 	if err != nil {
 		pconn.broken = true
 		pconn.debug(`error sending command "%s": %s`, logName, err)
-		return 0, "", fmt.Errorf("error writing command: %s", err)
+		return 0, "", ftpError{
+			err:       fmt.Errorf("error writing command: %s", err),
+			temporary: true,
+		}
 	}
 
-	code, msg, err := pconn.readResponse(0)
+	code, msg, err := pconn.readResponse()
 	if err != nil {
-		pconn.debug(`error reading response to command "%s": %s`, logName, err)
-		return 0, "", fmt.Errorf("error reading command response: %s", err)
+		return 0, "", err
 	}
 
 	pconn.debug("sent command %s, got %d-%s", logName, code, msg)
@@ -107,11 +111,16 @@ func (pconn *persistentConn) sendCommand(f string, args ...interface{}) (int, st
 	return code, msg, err
 }
 
-func (pconn *persistentConn) readResponse(expectedCode int) (int, string, error) {
+func (pconn *persistentConn) readResponse() (int, string, error) {
 	pconn.controlConn.SetReadDeadline(time.Now().Add(pconn.config.Timeout))
-	code, msg, err := pconn.reader.ReadResponse(expectedCode)
+	code, msg, err := pconn.reader.ReadResponse(0)
 	if err != nil {
 		pconn.broken = true
+		pconn.debug("error reading response: %s", err)
+		err = ftpError{
+			err:       fmt.Errorf("error reading response: %s", err),
+			temporary: true,
+		}
 	}
 	return code, msg, err
 }
@@ -121,13 +130,11 @@ func (pconn *persistentConn) debug(f string, args ...interface{}) {
 		return
 	}
 
-	msg := fmt.Sprintf("goftp: %.3f #%d %s\n",
+	fmt.Fprintf(pconn.config.Logger, "goftp: %.3f #%d %s\n",
 		time.Now().Sub(pconn.t0).Seconds(),
 		pconn.idx,
 		fmt.Sprintf(f, args...),
 	)
-
-	pconn.config.Logger.Write([]byte(msg))
 }
 
 func (pconn *persistentConn) fetchFeatures() error {
@@ -138,7 +145,7 @@ func (pconn *persistentConn) fetchFeatures() error {
 
 	if !positiveCompletionReply(code) {
 		pconn.debug("server doesn't support FEAT: %d-%s", code, msg)
-		return fmt.Errorf("server doesn't support FEAT (%s)", msg)
+		return nil
 	}
 
 	for _, line := range strings.Split(msg, "\n") {
@@ -184,7 +191,7 @@ func (pconn *persistentConn) logIn() error {
 	}
 
 	if !positiveCompletionReply(code) {
-		return fmt.Errorf("unexpected response to PASS: %d-%s", code, msg)
+		return ftpError{code: code, msg: msg}
 	}
 
 	return nil
@@ -237,10 +244,12 @@ func (pconn *persistentConn) requestPassive() (string, error) {
 PASV:
 	err = pconn.sendCommandExpected(replyEnteringPassiveMode, "PASV")
 	if err != nil {
-		return "", fmt.Errorf("error requesting PASV: %s", err)
+		return "", err
 	}
 
-	parseError := fmt.Errorf("error parsing PASV response (%s)", msg)
+	parseError := ftpError{
+		err: fmt.Errorf("error parsing PASV response (%s)", msg),
+	}
 
 	// "Entering Passive Mode (162,138,208,11,223,57)."
 	startIdx = strings.Index(msg, "(")
@@ -274,21 +283,23 @@ PASV:
 func (pconn *persistentConn) openDataConn() (net.Conn, error) {
 	host, err := pconn.requestPassive()
 	if err != nil {
-		return nil, fmt.Errorf("error requesting passive connection: %s", err)
+		return nil, err
 	}
 
 	pconn.debug("opening data connection to %s", host)
 	dc, err := net.DialTimeout("tcp", host, pconn.config.Timeout)
 
-	if err == nil {
-		if pconn.config.TLSConfig != nil {
-			pconn.debug("upgrading data connection to TLS")
-			dc = tls.Client(dc, pconn.config.TLSConfig)
+	if err != nil {
+		var isTemporary bool
+		if ne, ok := err.(net.Error); ok {
+			isTemporary = ne.Temporary()
 		}
+		return nil, ftpError{err: err, temporary: isTemporary}
 	}
 
-	if err != nil {
-		return nil, err
+	if pconn.config.TLSConfig != nil {
+		pconn.debug("upgrading data connection to TLS")
+		dc = tls.Client(dc, pconn.config.TLSConfig)
 	}
 
 	pconn.dataConn = dc

@@ -15,7 +15,6 @@ import (
 	"net"
 	"os"
 	"reflect"
-	"strings"
 	"testing"
 	"time"
 )
@@ -229,7 +228,7 @@ func TestTimeoutConnect(t *testing.T) {
 	_, err = c.NameList("")
 	delta := time.Now().Sub(t0)
 
-	if err == nil || !strings.Contains(err.Error(), "timeout") {
+	if err == nil || !err.(Error).Temporary() {
 		t.Error("Expected a timeout error")
 	}
 

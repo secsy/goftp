@@ -152,7 +152,7 @@ func TestNameList(t *testing.T) {
 	}
 }
 
-func TestState(t *testing.T) {
+func TestStat(t *testing.T) {
 	for _, addr := range ftpdAddrs {
 		c, err := Dial(addr)
 

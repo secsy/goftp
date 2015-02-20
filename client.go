@@ -15,6 +15,57 @@ import (
 	"time"
 )
 
+// Error is an expanded error interface returned by all Client methods.
+// It allows discerning callers to discover potentially actionable qualities
+// of the error.
+type Error interface {
+	error
+
+	// Whether the error was transient and attempting the same operation
+	// again may be succesful. This includes timeouts.
+	Temporary() bool
+
+	// If the error originated from an unexpected response from the server, this
+	// will return the FTP response code. Otherwise it will return 0.
+	Code() int
+
+	// Similarly, this will return the text response from the server, or empty
+	// string.
+	Message() string
+}
+
+type ftpError struct {
+	err       error
+	code      int
+	msg       string
+	timeout   bool
+	temporary bool
+}
+
+func (e ftpError) Error() string {
+	if e.code != 0 {
+		return fmt.Sprintf("unexpected respone: %d-%s", e.code, e.msg)
+	} else {
+		return e.err.Error()
+	}
+}
+
+func (e ftpError) Temporary() bool {
+	return e.temporary || transientNegativeCompletionReply(e.code)
+}
+
+func (e ftpError) Timeout() bool {
+	return e.timeout
+}
+
+func (e ftpError) Code() int {
+	return e.code
+}
+
+func (e ftpError) Message() string {
+	return e.msg
+}
+
 // TLSMode represents the FTPS connection strategy. Servers cannot support
 // both modes on the same port.
 type TLSMode int
@@ -38,7 +89,7 @@ type Config struct {
 	Password string
 
 	// Maximum number of FTP connections to open at once. Defaults to 5. Keep in
-	// mind that FTP servers typically limit how many connections a single client
+	// mind that FTP servers typically limit how many connections a single user
 	// may have open at once.
 	MaxConnections int32
 
@@ -118,7 +169,8 @@ func newClient(config Config, hosts []string) *Client {
 func (c *Client) Close() error {
 	c.mu.Lock()
 	if c.closed {
-		return errors.New("already closed")
+		c.mu.Unlock()
+		return ftpError{err: errors.New("already closed")}
 	}
 	c.closed = true
 
@@ -142,12 +194,10 @@ func (c *Client) debug(f string, args ...interface{}) {
 		return
 	}
 
-	msg := fmt.Sprintf("goftp: %.3f %s\n",
+	fmt.Fprintf(c.config.Logger, "goftp: %.3f %s\n",
 		time.Now().Sub(c.t0).Seconds(),
 		fmt.Sprintf(f, args...),
 	)
-
-	c.config.Logger.Write([]byte(msg))
 }
 
 // Get an idle connection.
@@ -242,13 +292,25 @@ func (c *Client) openConn(idx int) (pconn *persistentConn, err error) {
 	}
 
 	if err != nil {
-		return nil, err
+		var isTemporary bool
+		if ne, ok := err.(net.Error); ok {
+			isTemporary = ne.Temporary()
+		}
+		return nil, ftpError{
+			err:       err,
+			temporary: isTemporary,
+		}
 	}
 
 	pconn.setControlConn(conn)
 
-	if _, _, err = pconn.readResponse(replyServiceReady); err != nil {
+	code, msg, err := pconn.readResponse()
+	if err != nil {
 		goto Error
+	}
+
+	if code != replyServiceReady {
+		err = ftpError{code: code, msg: msg}
 	}
 
 	if c.config.TLSConfig != nil && c.config.TLSMode == TLSExplicit {
@@ -269,7 +331,7 @@ func (c *Client) openConn(idx int) (pconn *persistentConn, err error) {
 	defer c.mu.Unlock()
 
 	if c.closed {
-		err = errors.New("client closed")
+		err = ftpError{err: errors.New("client closed")}
 		goto Error
 	}
 
