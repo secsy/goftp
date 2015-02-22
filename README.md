@@ -17,3 +17,7 @@ Here are some notable package highlights:
 Please see the godocs for details and examples.
 
 Pull requests or feature requests are welcome, but in the case of the former, you better add tests.
+
+How to run tests (windows not supported):
+* ```./build_test_server.sh``` from root goftp directory (this downloads and compiles pure-ftpd and proftpd)
+* ```go test``` from the root goftp directory
