@@ -56,8 +56,11 @@ func compareFileInfos(a, b os.FileInfo) error {
 		return fmt.Errorf("Name(): %s != %s", a.Name(), b.Name())
 	}
 
-	if a.Size() != b.Size() {
-		return fmt.Errorf("Size(): %d != %d", a.Size(), b.Size())
+	// reporting of size for directories is inconsistent
+	if !a.IsDir() {
+		if a.Size() != b.Size() {
+			return fmt.Errorf("Size(): %d != %d", a.Size(), b.Size())
+		}
 	}
 
 	if a.Mode() != b.Mode() {
@@ -77,7 +80,7 @@ func compareFileInfos(a, b os.FileInfo) error {
 
 func TestReadDir(t *testing.T) {
 	for _, addr := range ftpdAddrs {
-		c, err := Dial(addr)
+		c, err := DialConfig(goftpConfig, addr)
 
 		if err != nil {
 			t.Fatal(err)
@@ -102,7 +105,7 @@ func TestReadDir(t *testing.T) {
 			}
 
 			if err := compareFileInfos(item, expected); err != nil {
-				t.Errorf("mismatch on %s: %s", item.Name(), err)
+				t.Errorf("mismatch on %s: %s (%s)", item.Name(), err, item.Sys().(string))
 			}
 
 			names = append(names, item.Name())
@@ -118,7 +121,7 @@ func TestReadDir(t *testing.T) {
 
 func TestNameList(t *testing.T) {
 	for _, addr := range ftpdAddrs {
-		c, err := Dial(addr)
+		c, err := DialConfig(goftpConfig, addr)
 
 		if err != nil {
 			t.Fatal(err)
@@ -154,7 +157,7 @@ func TestNameList(t *testing.T) {
 
 func TestStat(t *testing.T) {
 	for _, addr := range ftpdAddrs {
-		c, err := Dial(addr)
+		c, err := DialConfig(goftpConfig, addr)
 
 		if err != nil {
 			t.Fatal(err)
@@ -166,7 +169,13 @@ func TestStat(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		realStat, err := os.Stat("testroot/.")
+		// work around inconsistency between pure-ftpd and proftpd
+		var realStat os.FileInfo
+		if info.Name() == "testroot" {
+			realStat, err = os.Stat("testroot")
+		} else {
+			realStat, err = os.Stat("testroot/.")
+		}
 		if err != nil {
 			t.Fatal(err)
 		}

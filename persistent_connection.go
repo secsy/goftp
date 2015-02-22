@@ -39,6 +39,9 @@ type persistentConn struct {
 
 	// map of ftp features available on server
 	features map[string]string
+
+	// tracks the current type (e.g. ASCII/Image) of connection
+	currentType string
 }
 
 func (pconn *persistentConn) setControlConn(conn net.Conn) {
@@ -106,7 +109,7 @@ func (pconn *persistentConn) sendCommand(f string, args ...interface{}) (int, st
 		return 0, "", err
 	}
 
-	pconn.debug("sent command %s, got %d-%s", logName, code, msg)
+	pconn.debug("got %d-%s", code, msg)
 
 	return code, msg, err
 }
@@ -307,7 +310,15 @@ func (pconn *persistentConn) openDataConn() (net.Conn, error) {
 }
 
 func (pconn *persistentConn) setType(t string) error {
-	return pconn.sendCommandExpected(replyCommandOkay, "TYPE %s", t)
+	if pconn.currentType == t {
+		pconn.debug("type already set to %s", t)
+		return nil
+	}
+	err := pconn.sendCommandExpected(replyCommandOkay, "TYPE %s", t)
+	if err != nil {
+		pconn.currentType = t
+	}
+	return err
 }
 
 func (pconn *persistentConn) logInTLS() error {

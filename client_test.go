@@ -8,97 +8,17 @@ import (
 	"bytes"
 	"crypto/tls"
 	"errors"
-	"fmt"
 	"io/ioutil"
-	"log"
 	"math/rand"
-	"net"
 	"os"
 	"reflect"
 	"testing"
 	"time"
 )
 
-// addresses pure-ftpd will listen on for tests to use
-var ftpdAddrs = []string{"127.0.0.1:2121", "[::1]:2121"}
-
-// used for implicit tls test
-var implicitTLSAddrs = []string{"127.0.0.1:2122", "[::1]:2122"}
-
-func TestMain(m *testing.M) {
-	closer, err := startPureFTPD(ftpdAddrs, "ftpd/pure-ftpd")
-
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	var ret int
-	func() {
-		defer closer()
-		ret = m.Run()
-	}()
-
-	os.Exit(ret)
-}
-
-// start instance of pure-ftpd for each listn addr in ftpdAddrs
-func startPureFTPD(addrs []string, binary string) (func(), error) {
-	if _, err := os.Open("client_test.go"); os.IsNotExist(err) {
-		return nil, errors.New("must run tests in goftp/ directory")
-	}
-
-	if _, err := os.Open(binary); os.IsNotExist(err) {
-		return nil, fmt.Errorf("%s not found - you need to run ./build_test_server.sh from the goftp directory", binary)
-	}
-
-	cwd, err := os.Getwd()
-	if err != nil {
-		return nil, fmt.Errorf("couldn't determine cwd: %s", err)
-	}
-
-	var ftpdProcs []*os.Process
-	for _, addr := range addrs {
-		host, port, err := net.SplitHostPort(addr)
-		if err != nil {
-			panic(err)
-		}
-
-		ftpdProc, err := os.StartProcess(
-			binary,
-			[]string{binary,
-				"--bind", host + "," + port,
-				"--login", "puredb:ftpd/users.pdb",
-				"--tls", "1",
-			},
-			&os.ProcAttr{
-				Env:   []string{fmt.Sprintf("FTP_ANON_DIR=%s/testroot", cwd)},
-				Files: []*os.File{os.Stdin, os.Stderr, os.Stderr},
-			},
-		)
-
-		if err != nil {
-			return nil, fmt.Errorf("error starting pure-ftpd on %s: %s", addr, err)
-		}
-
-		ftpdProcs = append(ftpdProcs, ftpdProc)
-	}
-
-	closer := func() {
-		for _, proc := range ftpdProcs {
-			proc.Signal(os.Interrupt)
-			proc.Wait()
-		}
-	}
-
-	// give them a bit to get started
-	time.Sleep(100 * time.Millisecond)
-
-	return closer, nil
-}
-
 func TestRetrieve(t *testing.T) {
 	for _, addr := range ftpdAddrs {
-		c, err := Dial(addr)
+		c, err := DialConfig(goftpConfig, addr)
 
 		if err != nil {
 			t.Fatal(err)
@@ -149,7 +69,7 @@ func (tb *testWriter) Write(p []byte) (int, error) {
 // In this test we are simulating a client write error.
 func TestResumeRetrieveOnWriteError(t *testing.T) {
 	for _, addr := range ftpdAddrs {
-		c, err := Dial(addr)
+		c, err := DialConfig(goftpConfig, addr)
 
 		if err != nil {
 			t.Fatal(err)
@@ -184,7 +104,7 @@ func TestResumeRetrieveOnWriteError(t *testing.T) {
 // part way through the download.
 func TestResumeRetrieveOnReadError(t *testing.T) {
 	for _, addr := range ftpdAddrs {
-		c, err := Dial(addr)
+		c, err := DialConfig(goftpConfig, addr)
 
 		if err != nil {
 			t.Fatal(err)
@@ -247,7 +167,7 @@ func TestTimeoutConnect(t *testing.T) {
 
 func TestStore(t *testing.T) {
 	for _, addr := range ftpdAddrs {
-		c, err := Dial(addr)
+		c, err := DialConfig(goftpConfig, addr)
 
 		if err != nil {
 			t.Fatal(err)
@@ -260,7 +180,7 @@ func TestStore(t *testing.T) {
 
 		os.Remove("testroot/git-ignored/foo")
 
-		err = c.Store("/git-ignored/foo", toSend)
+		err = c.Store("git-ignored/foo", toSend)
 
 		if err != nil {
 			t.Fatal(err)
@@ -310,13 +230,7 @@ func randomBytes(b []byte) {
 // is an io.Seeker
 func TestResumeStoreOnWriteError(t *testing.T) {
 	for _, addr := range ftpdAddrs {
-		// pure-ftpd doesn't let anonymous users write to existing files,
-		// so we use a separate user to test resuming uploads
-		config := Config{
-			User:     "goftp",
-			Password: "rocks",
-		}
-		c, err := DialConfig(config, addr)
+		c, err := DialConfig(goftpConfig, addr)
 
 		if err != nil {
 			t.Fatal(err)
@@ -333,6 +247,11 @@ func TestResumeStoreOnWriteError(t *testing.T) {
 			cb: func(readSoFar int) {
 				if readSoFar > 5*1024*1024 && !closed {
 					// close all connections half way through upload
+
+					// if you don't wait a bit here, proftpd deletes the
+					// partially uploaded file for some reason
+					time.Sleep(100 * time.Millisecond)
+
 					c.Close()
 					c.closed = false
 					closed = true
@@ -364,8 +283,10 @@ func TestResumeStoreOnWriteError(t *testing.T) {
 }
 
 func TestExplicitTLS(t *testing.T) {
-	for _, addr := range ftpdAddrs {
+	for _, addr := range ftpdAddrs[2:] {
 		config := Config{
+			User:     "goftp",
+			Password: "rocks",
 			TLSConfig: &tls.Config{
 				InsecureSkipVerify: true,
 			},

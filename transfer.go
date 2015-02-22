@@ -224,6 +224,10 @@ func (c *Client) size(path string) (int64, error) {
 		return -1, nil
 	}
 
+	if err = pconn.setType("I"); err != nil {
+		return 0, err
+	}
+
 	code, msg, err := pconn.sendCommand("SIZE %s", path)
 	if err != nil {
 		return -1, err

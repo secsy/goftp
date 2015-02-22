@@ -20,7 +20,7 @@ func TestDelete(t *testing.T) {
 
 		os.Remove("testroot/git-ignored/foo")
 
-		err = c.Store("/git-ignored/foo", bytes.NewReader([]byte{1, 2, 3, 4}))
+		err = c.Store("git-ignored/foo", bytes.NewReader([]byte{1, 2, 3, 4}))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -49,7 +49,7 @@ func TestRename(t *testing.T) {
 
 		os.Remove("testroot/git-ignored/foo")
 
-		err = c.Store("/git-ignored/foo", bytes.NewReader([]byte{1, 2, 3, 4}))
+		err = c.Store("git-ignored/foo", bytes.NewReader([]byte{1, 2, 3, 4}))
 		if err != nil {
 			t.Fatal(err)
 		}

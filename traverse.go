@@ -68,7 +68,16 @@ func (c *Client) Stat(path string) (os.FileInfo, error) {
 // NameList fetches the contents of directory "path". If supported, ReadDir
 // should be preferred over NameList.
 func (c *Client) NameList(path string) ([]string, error) {
-	return c.dataStringList("NLST %s", path)
+	names, err := c.dataStringList("NLST %s", path)
+	if err != nil {
+		return nil, err
+	}
+
+	for i := range names {
+		names[i] = filepath.Base(names[i])
+	}
+
+	return names, nil
 }
 
 func (c *Client) controlStringList(f string, args ...interface{}) ([]string, error) {
@@ -139,7 +148,6 @@ func (c *Client) dataStringList(f string, args ...interface{}) ([]string, error)
 
 	code, msg, err := pconn.readResponse()
 	if err != nil {
-		pconn.debug("error reading response: %s", err)
 		return nil, err
 	}
 
@@ -190,8 +198,8 @@ func (f *ftpFile) Sys() interface{} {
 // an entry looks something like this:
 // type=file;size=12;modify=20150216084148;UNIX.mode=0644;unique=1000004g1187ec7; lorem.txt
 func parseMLST(entry string, skipSelfParent bool) (os.FileInfo, error) {
-	parseError := ftpError{err: fmt.Errorf(`failed parsing MLSD entry: %s`, entry)}
-	incompleteError := ftpError{err: fmt.Errorf(`MLSD entry incomplete: %s`, entry)}
+	parseError := ftpError{err: fmt.Errorf(`failed parsing MLST entry: %s`, entry)}
+	incompleteError := ftpError{err: fmt.Errorf(`MLST entry incomplete: %s`, entry)}
 
 	parts := strings.Split(entry, "; ")
 	if len(parts) != 2 {

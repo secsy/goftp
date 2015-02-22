@@ -12,7 +12,7 @@ Here are some notable package highlights:
 * Automatic resumption of interruped file transfers.
 * Explicit and implicit FTPS support (TLS only, no SSL).
 * IPv6 support.
-* Reasonably good automated tests that run against pure-ftpd.
+* Reasonably good automated tests that run against pure-ftpd and proftpd.
 
 Please see the godocs for details and examples.
 

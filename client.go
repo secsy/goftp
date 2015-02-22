@@ -270,10 +270,11 @@ func (c *Client) returnConn(pconn *persistentConn) {
 // Open and set up a control connection.
 func (c *Client) openConn(idx int) (pconn *persistentConn, err error) {
 	pconn = &persistentConn{
-		idx:      idx,
-		features: make(map[string]string),
-		config:   c.config,
-		t0:       c.t0,
+		idx:         idx,
+		features:    make(map[string]string),
+		config:      c.config,
+		t0:          c.t0,
+		currentType: "A",
 	}
 
 	host := c.hosts[idx%len(c.hosts)]
