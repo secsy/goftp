@@ -46,16 +46,31 @@ func (c *Client) Rename(from, to string) error {
 	return pconn.sendCommandExpected(replyFileActionOkay, "RNTO %s", to)
 }
 
-// Mkdir creates directory "path".
-func (c *Client) Mkdir(path string) error {
+// Mkdir creates directory "path". The returned string is how the client
+// should refer to the created directory.
+func (c *Client) Mkdir(path string) (string, error) {
 	pconn, err := c.getIdleConn()
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	defer c.returnConn(pconn)
 
-	return pconn.sendCommandExpected(replyDirCreated, "MKD %s", path)
+	code, msg, err := pconn.sendCommand("MKD %s", path)
+	if err != nil {
+		return "", err
+	}
+
+	if code != replyDirCreated {
+		return "", ftpError{code: code, msg: msg}
+	}
+
+	dir, err := extractDirName(msg)
+	if err != nil {
+		return "", err
+	}
+
+	return dir, nil
 }
 
 // Rmdir removes directory "path".
@@ -88,13 +103,12 @@ func (c *Client) Getwd() (string, error) {
 		return "", ftpError{code: code, msg: msg}
 	}
 
-	openQuote := strings.Index(msg, "\"")
-	closeQuote := strings.LastIndex(msg, "\"")
-	if openQuote == -1 || len(msg) == openQuote+1 || closeQuote <= openQuote {
-		return "", ftpError{code: code, msg: msg}
+	dir, err := extractDirName(msg)
+	if err != nil {
+		return "", err
 	}
 
-	return msg[openQuote+1 : closeQuote], nil
+	return dir, nil
 }
 
 // ReadDir fetches the contents of a directory, returning a list of
@@ -140,6 +154,17 @@ func (c *Client) Stat(path string) (os.FileInfo, error) {
 	}
 
 	return parseMLST(strings.TrimLeft(lines[1], " "), false)
+}
+
+func extractDirName(msg string) (string, error) {
+	openQuote := strings.Index(msg, "\"")
+	closeQuote := strings.LastIndex(msg, "\"")
+	if openQuote == -1 || len(msg) == openQuote+1 || closeQuote <= openQuote {
+		return "", ftpError{
+			err: fmt.Errorf("failed parsing directory name: %s", msg),
+		}
+	}
+	return strings.Replace(msg[openQuote+1:closeQuote], `""`, `"`, -1), nil
 }
 
 func (c *Client) controlStringList(f string, args ...interface{}) ([]string, error) {
