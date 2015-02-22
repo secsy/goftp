@@ -17,20 +17,26 @@ import (
 // time.Parse format string for parsing file mtimes.
 const timeFormat = "20060102150405"
 
+// Delete delets the file "path".
 func (c *Client) Delete(path string) error {
 	pconn, err := c.getIdleConn()
 	if err != nil {
 		return err
 	}
 
+	defer c.returnConn(pconn)
+
 	return pconn.sendCommandExpected(replyFileActionOkay, "DELE %s", path)
 }
 
+// Rename renames file "from" to "to".
 func (c *Client) Rename(from, to string) error {
 	pconn, err := c.getIdleConn()
 	if err != nil {
 		return err
 	}
+
+	defer c.returnConn(pconn)
 
 	err = pconn.sendCommandExpected(replyFileActionPending, "RNFR %s", from)
 	if err != nil {
@@ -40,22 +46,55 @@ func (c *Client) Rename(from, to string) error {
 	return pconn.sendCommandExpected(replyFileActionOkay, "RNTO %s", to)
 }
 
+// Mkdir creates directory "path".
 func (c *Client) Mkdir(path string) error {
 	pconn, err := c.getIdleConn()
 	if err != nil {
 		return err
 	}
 
+	defer c.returnConn(pconn)
+
 	return pconn.sendCommandExpected(replyDirCreated, "MKD %s", path)
 }
 
+// Rmdir removes directory "path".
 func (c *Client) Rmdir(path string) error {
 	pconn, err := c.getIdleConn()
 	if err != nil {
 		return err
 	}
 
+	defer c.returnConn(pconn)
+
 	return pconn.sendCommandExpected(replyFileActionOkay, "RMD %s", path)
+}
+
+// Getwd returns the current working directory.
+func (c *Client) Getwd() (string, error) {
+	pconn, err := c.getIdleConn()
+	if err != nil {
+		return "", err
+	}
+
+	defer c.returnConn(pconn)
+
+	code, msg, err := pconn.sendCommand("PWD")
+	if err != nil {
+		return "", err
+	}
+
+	if code != replyDirCreated {
+		return "", ftpError{code: code, msg: msg}
+	}
+
+	openQuote := strings.Index(msg, "\"")
+	closeQuote := strings.LastIndex(msg, "\"")
+	if openQuote == -1 || len(msg) == openQuote+1 || closeQuote <= openQuote {
+		return "", ftpError{code: code, msg: msg}
+	}
+
+	return msg[openQuote+1 : closeQuote], nil
 }
 
 // ReadDir fetches the contents of a directory, returning a list of

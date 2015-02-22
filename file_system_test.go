@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"path"
 	"reflect"
 	"sort"
 	"testing"
@@ -40,6 +41,10 @@ func TestDelete(t *testing.T) {
 
 		if err := c.Delete("git-ignored/foo"); err == nil {
 			t.Error("should be some sort of errorg")
+		}
+
+		if int(c.numOpenConns) != len(c.freeConnCh) {
+			t.Error("Leaked a connection")
 		}
 	}
 }
@@ -75,6 +80,10 @@ func TestRename(t *testing.T) {
 		if !bytes.Equal(newContents, []byte{1, 2, 3, 4}) {
 			t.Error("file contents wrong", newContents)
 		}
+
+		if int(c.numOpenConns) != len(c.freeConnCh) {
+			t.Error("Leaked a connection")
+		}
 	}
 }
 
@@ -109,6 +118,10 @@ func TestMkdirRmdir(t *testing.T) {
 		_, err = os.Stat("testroot/git-ignored/foodir")
 		if !os.IsNotExist(err) {
 			t.Error("directory should be gone")
+		}
+
+		if int(c.numOpenConns) != len(c.freeConnCh) {
+			t.Error("Leaked a connection")
 		}
 	}
 }
@@ -226,6 +239,10 @@ func TestReadDir(t *testing.T) {
 		if !reflect.DeepEqual(names, []string{"git-ignored", "lorem.txt", "subdir"}) {
 			t.Errorf("got: %v", names)
 		}
+
+		if int(c.numOpenConns) != len(c.freeConnCh) {
+			t.Error("Leaked a connection")
+		}
 	}
 }
 
@@ -286,6 +303,34 @@ func TestStat(t *testing.T) {
 
 		if err := compareFileInfos(info, realStat); err != nil {
 			t.Error(err)
+		}
+
+		if int(c.numOpenConns) != len(c.freeConnCh) {
+			t.Error("Leaked a connection")
+		}
+	}
+}
+
+func TestGetwd(t *testing.T) {
+	for _, addr := range ftpdAddrs {
+		c, err := DialConfig(goftpConfig, addr)
+
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		cwd, err := c.Getwd()
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		realCwd, err := os.Getwd()
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if cwd != "/" && cwd != path.Join(realCwd, "testroot") {
+			t.Errorf("Unexpected cwd: %s", cwd)
 		}
 
 		if int(c.numOpenConns) != len(c.freeConnCh) {
