@@ -135,6 +135,16 @@ func TestParseMLST(t *testing.T) {
 				mode:  os.FileMode(0755) | os.ModeDir,
 			},
 		},
+		{
+			// xlightftp (windows ftp server) mlsd output I found
+			"size=1089207168;type=file;modify=20090426141232; adsl TV 2009-04-22 23-55-05 Jazz Icons   Lionel Hampton Live in 1958 [Mezzo].avi",
+			&ftpFile{
+				name:  "adsl TV 2009-04-22 23-55-05 Jazz Icons   Lionel Hampton Live in 1958 [Mezzo].avi",
+				mtime: mustParseTime(timeFormat, "20090426141232"),
+				mode:  os.FileMode(0400),
+				size:  1089207168,
+			},
+		},
 	}
 
 	for _, c := range cases {

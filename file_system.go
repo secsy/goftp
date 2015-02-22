@@ -289,7 +289,8 @@ func parseMLST(entry string, skipSelfParent bool) (os.FileInfo, error) {
 			}
 		}
 	} else {
-		return nil, incompleteError
+		// no mode info, just say it's readable to us
+		mode = 0400
 	}
 
 	if typ == "dir" || typ == "cdir" || typ == "pdir" {
@@ -307,6 +308,10 @@ func parseMLST(entry string, skipSelfParent bool) (os.FileInfo, error) {
 		size, err = strconv.ParseInt(facts["sizd"], 10, 64)
 	} else if facts["type"] == "file" {
 		return nil, incompleteError
+	}
+
+	if err != nil {
+		return nil, parseError
 	}
 
 	if facts["modify"] == "" {
