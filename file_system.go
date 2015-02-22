@@ -61,10 +61,8 @@ func (c *Client) Rmdir(path string) error {
 // ReadDir fetches the contents of a directory, returning a list of
 // os.FileInfo's which are relatively easy to work with programatically. It
 // will not return entries corresponding to the current directory or parent
-// directories. ReadDir only works with servers that support the "MLST" feature.
-// FileInfo.Sys() will return the raw info string for the entry. If the server
-// does not provide the "UNIX.mode" fact, the Mode() will only have UNIX bits
-// set for "user" (i.e. nothing set for "group" or "world").
+// directories. The os.FileInfo's fields may be incomplete depending on what
+// the server supports.
 func (c *Client) ReadDir(path string) ([]os.FileInfo, error) {
 	entries, err := c.dataStringList("MLSD %s", path)
 	if err != nil {
@@ -90,9 +88,8 @@ func (c *Client) ReadDir(path string) ([]os.FileInfo, error) {
 }
 
 // Stat fetches details for a particular file. Stat requires the server to
-// support the "MLST" feature.  If the server does not provide the "UNIX.mode"
-// fact, the Mode() will only have UNIX bits set for "user" (i.e. nothing set
-// for "group" or "world").
+// support the "MLST" feature. The os.FileInfo's fields may be incomplete
+// depending on what the server supports.
 func (c *Client) Stat(path string) (os.FileInfo, error) {
 	lines, err := c.controlStringList("MLST %s", path)
 	if err != nil {
@@ -104,21 +101,6 @@ func (c *Client) Stat(path string) (os.FileInfo, error) {
 	}
 
 	return parseMLST(strings.TrimLeft(lines[1], " "), false)
-}
-
-// NameList fetches the contents of directory "path". If supported, ReadDir
-// should be preferred over NameList.
-func (c *Client) NameList(path string) ([]string, error) {
-	names, err := c.dataStringList("NLST %s", path)
-	if err != nil {
-		return nil, err
-	}
-
-	for i := range names {
-		names[i] = filepath.Base(names[i])
-	}
-
-	return names, nil
 }
 
 func (c *Client) controlStringList(f string, args ...interface{}) ([]string, error) {

@@ -229,42 +229,6 @@ func TestReadDir(t *testing.T) {
 	}
 }
 
-func TestNameList(t *testing.T) {
-	for _, addr := range ftpdAddrs {
-		c, err := DialConfig(goftpConfig, addr)
-
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		list, err := c.NameList("")
-
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		sort.Strings(list)
-
-		if !reflect.DeepEqual([]string{"git-ignored", "lorem.txt", "subdir"}, list) {
-			t.Errorf("Got %v", list)
-		}
-
-		list, err = c.NameList("subdir")
-
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		if !reflect.DeepEqual([]string{"1234.bin"}, list) {
-			t.Errorf("Got %v", list)
-		}
-
-		if int(c.numOpenConns) != len(c.freeConnCh) {
-			t.Error("Leaked a connection")
-		}
-	}
-}
-
 func TestStat(t *testing.T) {
 	for _, addr := range ftpdAddrs {
 		c, err := DialConfig(goftpConfig, addr)

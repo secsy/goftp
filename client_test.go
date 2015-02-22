@@ -17,7 +17,7 @@ func TestTimeoutConnect(t *testing.T) {
 	c, err := DialConfig(config, "168.254.111.222:2121")
 
 	t0 := time.Now()
-	_, err = c.NameList("")
+	_, err = c.ReadDir("")
 	delta := time.Now().Sub(t0)
 
 	if err == nil || !err.(Error).Temporary() {
