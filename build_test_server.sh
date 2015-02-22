@@ -38,6 +38,7 @@ Group `id -g -n`
 AllowStoreRestart on
 AllowOverwrite on
 UseReverseDNS off
+RequireValidShell off
 TLSOptions NoSessionReuseRequired
 <IfModule mod_tls.c>
   TLSEngine on
