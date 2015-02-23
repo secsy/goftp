@@ -94,7 +94,7 @@ type Config struct {
 	MaxConnections int32
 
 	// Timeout for opening connections and sending control commands. Defaults
-	// to 5 seconds.
+	// to 5 seconds. Currently there is no timeout for data transfers.
 	Timeout time.Duration
 
 	// TLS Config used for FTPS. If provided, it will be an error if the server
