@@ -43,7 +43,7 @@ func TestDelete(t *testing.T) {
 			t.Error("should be some sort of errorg")
 		}
 
-		if int(c.numOpenConns) != len(c.freeConnCh) {
+		if c.numOpenConns() != len(c.freeConnCh) {
 			t.Error("Leaked a connection")
 		}
 	}
@@ -81,7 +81,7 @@ func TestRename(t *testing.T) {
 			t.Error("file contents wrong", newContents)
 		}
 
-		if int(c.numOpenConns) != len(c.freeConnCh) {
+		if c.numOpenConns() != len(c.freeConnCh) {
 			t.Error("Leaked a connection")
 		}
 	}
@@ -131,7 +131,7 @@ func TestMkdirRmdir(t *testing.T) {
 			t.Errorf("Unexpected dir-with-quote value: %s", dir)
 		}
 
-		if int(c.numOpenConns) != len(c.freeConnCh) {
+		if c.numOpenConns() != len(c.freeConnCh) {
 			t.Error("Leaked a connection")
 		}
 	}
@@ -251,7 +251,7 @@ func TestReadDir(t *testing.T) {
 			t.Errorf("got: %v", names)
 		}
 
-		if int(c.numOpenConns) != len(c.freeConnCh) {
+		if c.numOpenConns() != len(c.freeConnCh) {
 			t.Error("Leaked a connection")
 		}
 	}
@@ -316,7 +316,7 @@ func TestStat(t *testing.T) {
 			t.Error(err)
 		}
 
-		if int(c.numOpenConns) != len(c.freeConnCh) {
+		if c.numOpenConns() != len(c.freeConnCh) {
 			t.Error("Leaked a connection")
 		}
 	}
@@ -368,7 +368,7 @@ func TestGetwd(t *testing.T) {
 			t.Errorf("Unexpected dir-with-quote value: %s", dir)
 		}
 
-		if int(c.numOpenConns) != len(c.freeConnCh) {
+		if c.numOpenConns() != len(c.freeConnCh) {
 			t.Error("Leaked a connection")
 		}
 	}

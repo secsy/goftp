@@ -42,11 +42,11 @@ func Example() {
 
 func Example_config() {
 	config := Config{
-		User:           "jlpicard",
-		Password:       "beverly123",
-		MaxConnections: 20,
-		Timeout:        10 * time.Second,
-		Logger:         os.Stderr,
+		User:               "jlpicard",
+		Password:           "beverly123",
+		ConnectionsPerHost: 10,
+		Timeout:            10 * time.Second,
+		Logger:             os.Stderr,
 	}
 
 	client, err := DialConfig(config, "ftp.example.com")

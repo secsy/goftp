@@ -24,7 +24,8 @@ func Dial(hosts ...string) (*Client, error) {
 // of IP addresses or hostnames with an optional port (defaults to 21).
 // Hostnames will be expanded to all the IP addresses they resolve to. The
 // client's connection pool will pick from all the addresses in a round-robin
-// fashion.
+// fashion. If you specify multiple hosts, they should be identical mirrors of
+// each other.
 func DialConfig(config Config, hosts ...string) (*Client, error) {
 	expandedHosts, err := lookupHosts(hosts, config.IPv6Lookup)
 	if err != nil {

@@ -11,7 +11,6 @@ import (
 	"io"
 	"net"
 	"sync"
-	"sync/atomic"
 	"time"
 )
 
@@ -88,10 +87,11 @@ type Config struct {
 	// User password. Defaults to "anonymous" if required.
 	Password string
 
-	// Maximum number of FTP connections to open at once. Defaults to 5. Keep in
+	// Maximum number of FTP connections to open per-host. Defaults to 5. Keep in
 	// mind that FTP servers typically limit how many connections a single user
-	// may have open at once.
-	MaxConnections int32
+	// may have open at once, so you may need to lower this if you are doing
+	// concurrent transfers.
+	ConnectionsPerHost int
 
 	// Timeout for opening connections and sending control commands. Defaults
 	// to 5 seconds. Currently there is no timeout for data transfers.
@@ -120,26 +120,26 @@ type Config struct {
 
 // Client maintains a connection pool to the FTP server(s), so you typically only
 // need one Client object. Client methods are safe to call concurrently from
-// multiple goroutines, but once you are using all MaxConnections connections,
-// methods will block waiting for a free connection.
+// different goroutines, but once you are using all ConnectionsPerHost connections
+// per host, methods will block waiting for a free connection.
 type Client struct {
-	config       Config
-	hosts        []string
-	freeConnCh   chan *persistentConn
-	numOpenConns int32
-	mu           sync.Mutex
-	t0           time.Time
-	connIdx      int
-	closed       bool
-	allCons      map[int]*persistentConn
+	config          Config
+	hosts           []string
+	freeConnCh      chan *persistentConn
+	numConnsPerHost map[string]int
+	allCons         map[int]*persistentConn
+	connIdx         int
+	mu              sync.Mutex
+	t0              time.Time
+	closed          bool
 }
 
 // Construct and return a new client Conn, setting default config
 // values as necessary.
 func newClient(config Config, hosts []string) *Client {
 
-	if config.MaxConnections <= 0 {
-		config.MaxConnections = 5
+	if config.ConnectionsPerHost <= 0 {
+		config.ConnectionsPerHost = 5
 	}
 
 	if config.Timeout <= 0 {
@@ -155,11 +155,12 @@ func newClient(config Config, hosts []string) *Client {
 	}
 
 	return &Client{
-		config:     config,
-		freeConnCh: make(chan *persistentConn, config.MaxConnections),
-		t0:         time.Now(),
-		hosts:      hosts,
-		allCons:    make(map[int]*persistentConn),
+		config:          config,
+		freeConnCh:      make(chan *persistentConn, len(hosts)*config.ConnectionsPerHost),
+		t0:              time.Now(),
+		hosts:           hosts,
+		allCons:         make(map[int]*persistentConn),
+		numConnsPerHost: make(map[string]int),
 	}
 }
 
@@ -174,13 +175,13 @@ func (c *Client) Close() error {
 	}
 	c.closed = true
 
-	var cons []*persistentConn
-	for _, pconn := range c.allCons {
-		cons = append(cons, pconn)
+	var conns []*persistentConn
+	for _, conn := range c.allCons {
+		conns = append(conns, conn)
 	}
 	c.mu.Unlock()
 
-	for _, pconn := range cons {
+	for _, pconn := range conns {
 		c.removeConn(pconn)
 	}
 
@@ -200,6 +201,14 @@ func (c *Client) debug(f string, args ...interface{}) {
 	)
 }
 
+func (c *Client) numOpenConns() int {
+	var numOpen int
+	for _, num := range c.numConnsPerHost {
+		numOpen += int(num)
+	}
+	return numOpen
+}
+
 // Get an idle connection.
 func (c *Client) getIdleConn() (*persistentConn, error) {
 
@@ -210,7 +219,9 @@ Loop:
 		case pconn := <-c.freeConnCh:
 			if pconn.broken {
 				c.debug("#%d was ready (broken)", pconn.idx)
-				atomic.AddInt32(&c.numOpenConns, -1)
+				c.mu.Lock()
+				c.numConnsPerHost[pconn.host]--
+				c.mu.Unlock()
 				c.removeConn(pconn)
 			} else {
 				c.debug("#%d was ready", pconn.idx)
@@ -225,16 +236,35 @@ Loop:
 	// one becomes available.
 	for {
 		c.mu.Lock()
-		if c.numOpenConns < c.config.MaxConnections {
-			c.numOpenConns++
+
+		// can we open a connection to some host
+		if c.numOpenConns() < len(c.hosts)*c.config.ConnectionsPerHost {
 			c.connIdx++
 			idx := c.connIdx
+
+			// find the next host with less than ConnectionsPerHost connections
+			var host string
+			for i := idx; i < idx+len(c.hosts); i++ {
+				if c.numConnsPerHost[c.hosts[i%len(c.hosts)]] < c.config.ConnectionsPerHost {
+					host = c.hosts[i%len(c.hosts)]
+					break
+				}
+			}
+
+			if host == "" {
+				panic("this shouldn't be possible")
+			}
+
+			c.numConnsPerHost[host]++
+
 			c.mu.Unlock()
 
-			pconn, err := c.openConn(idx)
+			pconn, err := c.openConn(idx, host)
 			if err != nil {
+				c.mu.Lock()
+				c.numConnsPerHost[host]--
+				c.mu.Unlock()
 				c.debug("#%d error connecting: %s", idx, err)
-				atomic.AddInt32(&c.numOpenConns, -1)
 			}
 			return pconn, err
 		}
@@ -246,7 +276,9 @@ Loop:
 
 		if pconn.broken {
 			c.debug("waited and got #%d (broken)", pconn.idx)
-			atomic.AddInt32(&c.numOpenConns, -1)
+			c.mu.Lock()
+			c.numConnsPerHost[pconn.host]--
+			c.mu.Unlock()
 			c.removeConn(pconn)
 		} else {
 			c.debug("waited and got #%d", pconn.idx)
@@ -268,16 +300,15 @@ func (c *Client) returnConn(pconn *persistentConn) {
 }
 
 // Open and set up a control connection.
-func (c *Client) openConn(idx int) (pconn *persistentConn, err error) {
+func (c *Client) openConn(idx int, host string) (pconn *persistentConn, err error) {
 	pconn = &persistentConn{
 		idx:         idx,
 		features:    make(map[string]string),
 		config:      c.config,
 		t0:          c.t0,
 		currentType: "A",
+		host:        host,
 	}
-
-	host := c.hosts[idx%len(c.hosts)]
 
 	var conn net.Conn
 
@@ -292,36 +323,43 @@ func (c *Client) openConn(idx int) (pconn *persistentConn, err error) {
 		conn, err = net.DialTimeout("tcp", host, c.config.Timeout)
 	}
 
+	var (
+		code int
+		msg  string
+	)
+
 	if err != nil {
 		var isTemporary bool
 		if ne, ok := err.(net.Error); ok {
 			isTemporary = ne.Temporary()
 		}
-		return nil, ftpError{
+		err = ftpError{
 			err:       err,
 			temporary: isTemporary,
 		}
+		goto Error
 	}
 
 	pconn.setControlConn(conn)
 
-	code, msg, err := pconn.readResponse()
+	code, msg, err = pconn.readResponse()
 	if err != nil {
 		goto Error
 	}
 
 	if code != replyServiceReady {
 		err = ftpError{code: code, msg: msg}
+		goto Error
 	}
 
 	if c.config.TLSConfig != nil && c.config.TLSMode == TLSExplicit {
-		if err = pconn.logInTLS(); err != nil {
-			goto Error
-		}
+		err = pconn.logInTLS()
 	} else {
-		if err = pconn.logIn(); err != nil {
-			goto Error
-		}
+		err = pconn.logIn()
+	}
+
+	if err != nil {
+		goto Error
 	}
 
 	if err = pconn.fetchFeatures(); err != nil {

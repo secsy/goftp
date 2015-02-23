@@ -7,6 +7,7 @@ package goftp
 import (
 	"bytes"
 	"crypto/tls"
+	"sync"
 	"testing"
 	"time"
 )
@@ -32,7 +33,7 @@ func TestTimeoutConnect(t *testing.T) {
 		t.Errorf("Timeout of 100ms was off by %s", offBy)
 	}
 
-	if int(c.numOpenConns) != len(c.freeConnCh) {
+	if c.numOpenConns() != len(c.freeConnCh) {
 		t.Error("Leaked a connection")
 	}
 }
@@ -63,7 +64,7 @@ func TestExplicitTLS(t *testing.T) {
 			t.Errorf("Got %v", buf.Bytes())
 		}
 
-		if int(c.numOpenConns) != len(c.freeConnCh) {
+		if c.numOpenConns() != len(c.freeConnCh) {
 			t.Error("Leaked a connection")
 		}
 	}
@@ -100,8 +101,50 @@ func TestImplicitTLS(t *testing.T) {
 			t.Errorf("Got %v", buf.Bytes())
 		}
 
-		if int(c.numOpenConns) != len(c.freeConnCh) {
+		if c.numOpenConns() != len(c.freeConnCh) {
 			t.Error("Leaked a connection")
 		}
+	}
+}
+
+func TestPooling(t *testing.T) {
+	config := Config{
+		ConnectionsPerHost: 2,
+		User:               "goftp",
+		Password:           "rocks",
+	}
+	c, err := DialConfig(config, ftpdAddrs...)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	wg := sync.WaitGroup{}
+	ok := true
+	numConns := config.ConnectionsPerHost * len(ftpdAddrs)
+
+	for i := 0; i < numConns; i++ {
+		wg.Add(1)
+		go func() {
+			buf := new(bytes.Buffer)
+			err := c.Retrieve("subdir/1234.bin", buf)
+			if err != nil || !bytes.Equal(buf.Bytes(), []byte{1, 2, 3, 4}) {
+				ok = false
+			}
+			wg.Done()
+		}()
+	}
+
+	wg.Wait()
+
+	if !ok {
+		t.Error("something went wrong")
+	}
+
+	if len(c.freeConnCh) != numConns {
+		t.Errorf("Expected %d conns, was %d", numConns, len(c.freeConnCh))
+	}
+
+	if c.numOpenConns() != len(c.freeConnCh) {
+		t.Error("Leaked a connection")
 	}
 }

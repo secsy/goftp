@@ -43,7 +43,7 @@ func TestRetrieve(t *testing.T) {
 			t.Errorf("Got %v", buf.Bytes())
 		}
 
-		if int(c.numOpenConns) != len(c.freeConnCh) {
+		if c.numOpenConns() != len(c.freeConnCh) {
 			t.Error("Leaked a connection")
 		}
 	}
@@ -93,7 +93,7 @@ func TestResumeRetrieveOnWriteError(t *testing.T) {
 			t.Errorf("Got %v", buf.writes)
 		}
 
-		if int(c.numOpenConns) != len(c.freeConnCh) {
+		if c.numOpenConns() != len(c.freeConnCh) {
 			t.Error("Leaked a connection")
 		}
 	}
@@ -132,7 +132,7 @@ func TestResumeRetrieveOnReadError(t *testing.T) {
 			t.Errorf("Got %v", buf.writes)
 		}
 
-		if int(c.numOpenConns) != len(c.freeConnCh) {
+		if c.numOpenConns() != len(c.freeConnCh) {
 			t.Error("Leaked a connection")
 		}
 	}
@@ -168,7 +168,7 @@ func TestStore(t *testing.T) {
 			t.Errorf("Got %v", stored)
 		}
 
-		if int(c.numOpenConns) != len(c.freeConnCh) {
+		if c.numOpenConns() != len(c.freeConnCh) {
 			t.Error("Leaked a connection")
 		}
 	}
@@ -249,7 +249,7 @@ func TestResumeStoreOnWriteError(t *testing.T) {
 			t.Errorf("buf was %d, stored was %d", len(buf), len(stored))
 		}
 
-		if int(c.numOpenConns) != len(c.freeConnCh) {
+		if c.numOpenConns() != len(c.freeConnCh) {
 			t.Error("Leaked a connection")
 		}
 	}

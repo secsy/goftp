@@ -42,6 +42,8 @@ type persistentConn struct {
 
 	// tracks the current type (e.g. ASCII/Image) of connection
 	currentType string
+
+	host string
 }
 
 func (pconn *persistentConn) setControlConn(conn net.Conn) {
