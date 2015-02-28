@@ -9,7 +9,6 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"strings"
 	"sync/atomic"
 )
 
@@ -21,16 +20,16 @@ func ExampleClient_ReadDir_parallelWalk() {
 		panic(err)
 	}
 
-	Walk(client, "", func(dir string, info os.FileInfo, err error) error {
+	Walk(client, "", func(fullPath string, info os.FileInfo, err error) error {
 		if err != nil {
 			// no permissions is okay, keep walking
-			if strings.Contains(err.Error(), "550") {
+			if err.(Error).Code() == 550 {
 				return nil
 			}
 			return err
 		}
 
-		fmt.Println(path.Join(dir, info.Name()))
+		fmt.Println(fullPath)
 
 		return nil
 	})
@@ -57,7 +56,7 @@ func Walk(client *Client, root string, walkFn filepath.WalkFunc) (ret error) {
 			}
 
 			for _, file := range files {
-				if err = walkFn(dir, file, nil); err != nil {
+				if err = walkFn(path.Join(dir, file.Name()), file, nil); err != nil {
 					if file.IsDir() && err == filepath.SkipDir {
 						continue
 					}
