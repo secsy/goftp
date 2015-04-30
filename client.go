@@ -79,6 +79,12 @@ const (
 	TLSImplicit TLSMode = 1
 )
 
+// for testing
+type stubResponse struct {
+	code int
+	msg  string
+}
+
 // Config contains configuration for a Client object.
 type Config struct {
 	// User name. Defaults to "anonymous".
@@ -116,6 +122,9 @@ type Config struct {
 	// Logging destination for debugging messages. Set to os.Stderr to log to stderr.
 	// Password value will not be logged.
 	Logger io.Writer
+
+	// For testing convenience.
+	stubResponses map[string]stubResponse
 }
 
 // Client maintains a connection pool to the FTP server(s), so you typically only

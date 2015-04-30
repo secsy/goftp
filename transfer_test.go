@@ -11,6 +11,7 @@ import (
 	"math/rand"
 	"os"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
@@ -33,6 +34,40 @@ func TestRetrieve(t *testing.T) {
 			t.Errorf("Expected error about not existing")
 		}
 
+		err = c.Retrieve("subdir/1234.bin", buf)
+
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if !bytes.Equal([]byte{1, 2, 3, 4}, buf.Bytes()) {
+			t.Errorf("Got %v", buf.Bytes())
+		}
+
+		if c.numOpenConns() != len(c.freeConnCh) {
+			t.Error("Leaked a connection")
+		}
+	}
+}
+
+func TestRetrievePASV(t *testing.T) {
+	for _, addr := range ftpdAddrs {
+		if strings.HasPrefix(addr, "[::1]") {
+			// PASV can't work with IPv6
+			continue
+		}
+
+		c, err := DialConfig(goftpConfig, addr)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// server doesn't support EPSV
+		c.config.stubResponses = map[string]stubResponse{
+			"EPSV": stubResponse{500, `'EPSV': command not understood.`},
+		}
+
+		buf := new(bytes.Buffer)
 		err = c.Retrieve("subdir/1234.bin", buf)
 
 		if err != nil {

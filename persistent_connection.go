@@ -111,6 +111,13 @@ func (pconn *persistentConn) sendCommand(f string, args ...interface{}) (int, st
 		return 0, "", err
 	}
 
+	if pconn.config.stubResponses != nil {
+		if stub, found := pconn.config.stubResponses[cmd]; found {
+			code = stub.code
+			msg = stub.msg
+		}
+	}
+
 	pconn.debug("got %d-%s", code, msg)
 
 	return code, msg, err
@@ -240,16 +247,20 @@ func (pconn *persistentConn) requestPassive() (string, error) {
 
 	remoteHost, _, err = net.SplitHostPort(pconn.controlConn.RemoteAddr().String())
 	if err != nil {
-		pconn.debug("failed determing remote host (?)")
+		pconn.debug("failed determining remote host: %s", err)
 		goto PASV
 	}
 
 	return fmt.Sprintf("[%s]:%d", remoteHost, port), nil
 
 PASV:
-	err = pconn.sendCommandExpected(replyEnteringPassiveMode, "PASV")
+	code, msg, err = pconn.sendCommand("PASV")
 	if err != nil {
 		return "", err
+	}
+
+	if code != replyEnteringPassiveMode {
+		return "", ftpError{code: code, msg: msg}
 	}
 
 	parseError := ftpError{
