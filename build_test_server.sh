@@ -84,7 +84,7 @@ VpOorURz8ETlfAA=
 -----END CERTIFICATE-----
 CERT
 
-curl -O http://download.pureftpd.org/pub/pure-ftpd/releases/pure-ftpd-1.0.36.tar.gz
+curl -O http://download.pureftpd.org/pub/pure-ftpd/releases/obsolete/pure-ftpd-1.0.36.tar.gz
 tar -xzf pure-ftpd-1.0.36.tar.gz
 cd pure-ftpd-1.0.36
 
