@@ -201,12 +201,12 @@ func compareFileInfos(a, b os.FileInfo) error {
 		return fmt.Errorf("Mode(): %s != %s", a.Mode(), b.Mode())
 	}
 
-	if !a.ModTime().Truncate(time.Second).Equal(b.ModTime().Truncate(time.Second)) {
+	if !a.ModTime().Truncate(time.Minute).Equal(b.ModTime().Truncate(time.Minute)) {
 		return fmt.Errorf("ModTime() %s != %s", a.ModTime(), b.ModTime())
 	}
 
 	if a.IsDir() != b.IsDir() {
-		return fmt.Errorf("IsDir(): %s != %s", a.IsDir(), b.IsDir())
+		return fmt.Errorf("IsDir(): %v != %v", a.IsDir(), b.IsDir())
 	}
 
 	return nil
@@ -215,6 +215,57 @@ func compareFileInfos(a, b os.FileInfo) error {
 func TestReadDir(t *testing.T) {
 	for _, addr := range ftpdAddrs {
 		c, err := DialConfig(goftpConfig, addr)
+
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		list, err := c.ReadDir("")
+
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if len(list) != 3 {
+			t.Errorf("expected 3 items, got %d", len(list))
+		}
+
+		var names []string
+
+		for _, item := range list {
+			expected, err := os.Stat("testroot/" + item.Name())
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if err := compareFileInfos(item, expected); err != nil {
+				t.Errorf("mismatch on %s: %s (%s)", item.Name(), err, item.Sys().(string))
+			}
+
+			names = append(names, item.Name())
+		}
+
+		// sanity check names are what we expected
+		sort.Strings(names)
+		if !reflect.DeepEqual(names, []string{"git-ignored", "lorem.txt", "subdir"}) {
+			t.Errorf("got: %v", names)
+		}
+
+		if c.numOpenConns() != len(c.freeConnCh) {
+			t.Error("Leaked a connection")
+		}
+	}
+}
+
+func TestReadDirNoMLSD(t *testing.T) {
+	// pureFTPD seems to have some issues with timestamps in LIST output
+	for _, addr := range proAddrs {
+		config := goftpConfig
+		config.stubResponses = map[string]stubResponse{
+			"MLSD ": {500, "'MLSD ': command not understood."},
+		}
+
+		c, err := DialConfig(config, addr)
 
 		if err != nil {
 			t.Fatal(err)
@@ -322,6 +373,42 @@ func TestStat(t *testing.T) {
 	}
 }
 
+func TestStatNoMLST(t *testing.T) {
+	// pureFTPD seems to have some issues with timestamps in LIST output
+	for _, addr := range proAddrs {
+		config := goftpConfig
+		config.stubResponses = map[string]stubResponse{
+			"MLST ":                {500, "'MLST ': command not understood."},
+			"MLST subdir/1234.bin": {500, "'MLST ': command not understood."},
+			"MLST subdir":          {500, "'MLST ': command not understood."},
+		}
+
+		c, err := DialConfig(config, addr)
+
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// check a file
+		info, err := c.Stat("subdir/1234.bin")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		realStat, err := os.Stat("testroot/subdir/1234.bin")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if err := compareFileInfos(info, realStat); err != nil {
+			t.Error(err)
+		}
+
+		if c.numOpenConns() != len(c.freeConnCh) {
+			t.Error("Leaked a connection")
+		}
+	}
+}
 func TestGetwd(t *testing.T) {
 	for _, addr := range ftpdAddrs {
 		c, err := DialConfig(goftpConfig, addr)

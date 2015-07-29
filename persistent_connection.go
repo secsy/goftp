@@ -94,6 +94,13 @@ func (pconn *persistentConn) sendCommand(f string, args ...interface{}) (int, st
 
 	pconn.debug("sending command %s", logName)
 
+	if pconn.config.stubResponses != nil {
+		if stub, found := pconn.config.stubResponses[cmd]; found {
+			pconn.debug("got stub response %d-%s", stub.code, stub.msg)
+			return stub.code, stub.msg, nil
+		}
+	}
+
 	pconn.controlConn.SetWriteDeadline(time.Now().Add(pconn.config.Timeout))
 	err := pconn.writer.PrintfLine(cmd)
 
@@ -109,13 +116,6 @@ func (pconn *persistentConn) sendCommand(f string, args ...interface{}) (int, st
 	code, msg, err := pconn.readResponse()
 	if err != nil {
 		return 0, "", err
-	}
-
-	if pconn.config.stubResponses != nil {
-		if stub, found := pconn.config.stubResponses[cmd]; found {
-			code = stub.code
-			msg = stub.msg
-		}
 	}
 
 	pconn.debug("got %d-%s", code, msg)

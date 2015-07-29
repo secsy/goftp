@@ -43,7 +43,7 @@ type ftpError struct {
 
 func (e ftpError) Error() string {
 	if e.code != 0 {
-		return fmt.Sprintf("unexpected respone: %d-%s", e.code, e.msg)
+		return fmt.Sprintf("unexpected response: %d-%s", e.code, e.msg)
 	} else {
 		return e.err.Error()
 	}
@@ -123,6 +123,10 @@ type Config struct {
 	// Password value will not be logged.
 	Logger io.Writer
 
+	// Time zone of the FTP server. Used when parsing mtime from "LIST" output if
+	// server does not support "MLST"/"MLSD". Defaults to UTC.
+	ServerLocation *time.Location
+
 	// For testing convenience.
 	stubResponses map[string]stubResponse
 }
@@ -161,6 +165,10 @@ func newClient(config Config, hosts []string) *Client {
 
 	if config.Password == "" {
 		config.Password = "anonymous"
+	}
+
+	if config.ServerLocation == nil {
+		config.ServerLocation = time.UTC
 	}
 
 	return &Client{

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -111,20 +112,40 @@ func (c *Client) Getwd() (string, error) {
 	return dir, nil
 }
 
+func commandNotSupporterdError(err error) bool {
+	respCode := err.(ftpError).Code()
+	return respCode == replyCommandSyntaxError || respCode == replyCommandNotImplemented
+}
+
 // ReadDir fetches the contents of a directory, returning a list of
 // os.FileInfo's which are relatively easy to work with programatically. It
 // will not return entries corresponding to the current directory or parent
 // directories. The os.FileInfo's fields may be incomplete depending on what
-// the server supports.
+// the server supports. If the server does not support "MLSD", "LIST" will
+// be used. You may have to set ServerLocation in your config to get (more)
+// accurate ModTimes in this case.
 func (c *Client) ReadDir(path string) ([]os.FileInfo, error) {
 	entries, err := c.dataStringList("MLSD %s", path)
+
+	parser := parseMLST
+
 	if err != nil {
-		return nil, err
+		if !commandNotSupporterdError(err) {
+			return nil, err
+		}
+
+		entries, err = c.dataStringList("LIST %s", path)
+		if err != nil {
+			return nil, err
+		}
+		parser = func(entry string, skipSelfParent bool) (os.FileInfo, error) {
+			return parseLIST(entry, c.config.ServerLocation, skipSelfParent)
+		}
 	}
 
 	var ret []os.FileInfo
 	for _, entry := range entries {
-		info, err := parseMLST(entry, true)
+		info, err := parser(entry, true)
 		if err != nil {
 			c.debug("error in ReadDir: %s", err)
 			return nil, err
@@ -140,12 +161,26 @@ func (c *Client) ReadDir(path string) ([]os.FileInfo, error) {
 	return ret, nil
 }
 
-// Stat fetches details for a particular file. Stat requires the server to
-// support the "MLST" feature. The os.FileInfo's fields may be incomplete
-// depending on what the server supports.
+// Stat fetches details for a particular file. The os.FileInfo's fields may
+// be incomplete depending on what the server supports. If the server doesn't
+// support "MLST", "LIST" will be attempted, but "LIST" will not work if path
+// is a directory. You may have to set ServerLocation in your config to get
+// (more) accurate ModTimes when using "LIST".
 func (c *Client) Stat(path string) (os.FileInfo, error) {
 	lines, err := c.controlStringList("MLST %s", path)
 	if err != nil {
+		if commandNotSupporterdError(err) {
+			lines, err = c.dataStringList("LIST %s", path)
+			if err != nil {
+				return nil, err
+			}
+
+			if len(lines) != 1 {
+				return nil, ftpError{err: fmt.Errorf("unexpected LIST response: %v", lines)}
+			}
+
+			return parseLIST(lines[0], c.config.ServerLocation, false)
+		}
 		return nil, err
 	}
 
@@ -280,6 +315,76 @@ func (f *ftpFile) IsDir() bool {
 
 func (f *ftpFile) Sys() interface{} {
 	return f.raw
+}
+
+var lsRegex = regexp.MustCompile(`^\s*(\S)(\S{3})(\S{3})(\S{3})(?:\s+\S+){3}\s+(\d+)\s+(\w+\s+\d+)\s+([\d:]+)\s+(.+)$`)
+
+// total 404456
+// drwxr-xr-x   8 goftp    20            272 Jul 28 05:03 git-ignored
+func parseLIST(entry string, loc *time.Location, skipSelfParent bool) (os.FileInfo, error) {
+	if strings.HasPrefix(entry, "total ") {
+		return nil, nil
+	}
+
+	matches := lsRegex.FindStringSubmatch(entry)
+	if len(matches) == 0 {
+		return nil, ftpError{err: fmt.Errorf(`failed parsing LIST entry: %s`, entry)}
+	}
+
+	if skipSelfParent && (matches[8] == "." || matches[8] == "..") {
+		return nil, nil
+	}
+
+	var mode os.FileMode
+	if matches[1] == "d" {
+		mode |= os.ModeDir
+	}
+
+	for i := 0; i < 3; i++ {
+		if matches[i+2][0] == 'r' {
+			mode |= os.FileMode(04 << (3 * uint(2-i)))
+		}
+		if matches[i+2][1] == 'w' {
+			mode |= os.FileMode(02 << (3 * uint(2-i)))
+		}
+		if matches[i+2][2] == 'x' || matches[i+2][2] == 's' {
+			mode |= os.FileMode(01 << (3 * uint(2-i)))
+		}
+	}
+
+	size, err := strconv.ParseUint(matches[5], 10, 64)
+	if err != nil {
+		return nil, ftpError{err: fmt.Errorf(`failed parsing LIST entry's size: %s (%s)`, err, entry)}
+	}
+
+	var mtime time.Time
+	if strings.Contains(matches[7], ":") {
+		mtime, err = time.ParseInLocation("Jan _2 15:04", matches[6]+" "+matches[7], loc)
+		if err == nil {
+			now := time.Now()
+			year := now.Year()
+			if mtime.Month() > now.Month() {
+				year--
+			}
+			mtime, err = time.ParseInLocation("Jan _2 15:04 2006", matches[6]+" "+matches[7]+" "+strconv.Itoa(year), loc)
+		}
+	} else {
+		mtime, err = time.ParseInLocation("Jan _2 2006", matches[6]+" "+matches[7], loc)
+	}
+
+	if err != nil {
+		return nil, ftpError{err: fmt.Errorf(`failed parsing LIST entry's mtime: %s (%s)`, err, entry)}
+	}
+
+	info := &ftpFile{
+		name:  filepath.Base(matches[8]),
+		mode:  mode,
+		mtime: mtime,
+		raw:   entry,
+		size:  int64(size),
+	}
+
+	return info, nil
 }
 
 // an entry looks something like this:

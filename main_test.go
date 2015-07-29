@@ -15,19 +15,22 @@ import (
 	"time"
 )
 
-// list of addresses for tests to connect to
-var ftpdAddrs []string
-
-// used for implicit tls test
-var implicitTLSAddrs = []string{"127.0.0.1:2122", "[::1]:2122"}
-
 var goftpConfig = Config{
 	User:     "goftp",
 	Password: "rocks",
 }
 
+// list of addresses for tests to connect to
+var ftpdAddrs []string
+
+var (
+	// used for implicit tls test
+	implicitTLSAddrs = []string{"127.0.0.1:2122", "[::1]:2122"}
+	pureAddrs        = []string{"127.0.0.1:2121", "[::1]:2121"}
+	proAddrs         = []string{"127.0.0.1:2123"}
+)
+
 func TestMain(m *testing.M) {
-	pureAddrs := []string{"127.0.0.1:2121", "[::1]:2121"}
 	pureCloser, err := startPureFTPD(pureAddrs, "ftpd/pure-ftpd")
 	ftpdAddrs = append(ftpdAddrs, pureAddrs...)
 
@@ -37,7 +40,7 @@ func TestMain(m *testing.M) {
 
 	proCloser, err := startProFTPD()
 	// this port is hard coded in its config
-	ftpdAddrs = append(ftpdAddrs, "127.0.0.1:2123")
+	ftpdAddrs = append(ftpdAddrs, proAddrs...)
 
 	if err != nil {
 		log.Fatal(err)
