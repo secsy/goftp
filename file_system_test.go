@@ -169,6 +169,26 @@ func TestParseMLST(t *testing.T) {
 				size:  1089207168,
 			},
 		},
+		{
+			// test "type=OS.unix=slink"
+			"type=OS.unix=slink:;size=32;modify=20140728100902;UNIX.mode=0777;UNIX.uid=647;UNIX.gid=649;unique=fd01g1220c04; access-logs",
+			&ftpFile{
+				name:  "access-logs",
+				mtime: mustParseTime(timeFormat, "20140728100902"),
+				mode:  os.FileMode(0777) | os.ModeSymlink,
+				size:  32,
+			},
+		},
+		{
+			// test "type=OS.unix=symlink"
+			"modify=20150928140340;perm=adfrw;size=6;type=OS.unix=symlink;unique=801U5AA227;UNIX.group=1000;UNIX.mode=0777;UNIX.owner=1000; slinkdir",
+			&ftpFile{
+				name:  "slinkdir",
+				mtime: mustParseTime(timeFormat, "20150928140340"),
+				mode:  os.FileMode(0777) | os.ModeSymlink,
+				size:  6,
+			},
+		},
 	}
 
 	for _, c := range cases {
