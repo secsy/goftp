@@ -336,8 +336,11 @@ func parseLIST(entry string, loc *time.Location, skipSelfParent bool) (os.FileIn
 	}
 
 	var mode os.FileMode
-	if matches[1] == "d" {
+	switch matches[1] {
+	case "d":
 		mode |= os.ModeDir
+	case "l":
+		mode |= os.ModeSymlink
 	}
 
 	for i := 0; i < 3; i++ {
@@ -400,7 +403,7 @@ func parseMLST(entry string, skipSelfParent bool) (os.FileInfo, error) {
 
 	facts := make(map[string]string)
 	for _, factPair := range strings.Split(parts[0], ";") {
-		factParts := strings.Split(factPair, "=")
+		factParts := strings.SplitN(factPair, "=", 2)
 		if len(factParts) != 2 {
 			return nil, parseError
 		}
@@ -446,6 +449,9 @@ func parseMLST(entry string, skipSelfParent bool) (os.FileInfo, error) {
 
 	if typ == "dir" || typ == "cdir" || typ == "pdir" {
 		mode |= os.ModeDir
+	} else if strings.HasPrefix(typ, "os.unix=slink") || strings.HasPrefix(typ, "os.unix=symlink") {
+		// note: there is no general way to determine whether a symlink points to a dir or a file
+		mode |= os.ModeSymlink
 	}
 
 	var (
