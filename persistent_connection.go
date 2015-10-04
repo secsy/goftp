@@ -218,11 +218,18 @@ func (pconn *persistentConn) requestPassive() (string, error) {
 		endIdx     int
 		port       int
 		remoteHost string
+		code       int
+		msg        string
+		err        error
 	)
+
+	if !pconn.hasFeature("EPSV") {
+		goto PASV
+	}
 
 	// Extended PaSsiVe (same idea as PASV, but works with IPv6).
 	// See http://tools.ietf.org/html/rfc2428.
-	code, msg, err := pconn.sendCommand("EPSV")
+	code, msg, err = pconn.sendCommand("EPSV")
 	if err != nil {
 		return "", err
 	}
