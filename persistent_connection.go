@@ -40,6 +40,9 @@ type persistentConn struct {
 	// map of ftp features available on server
 	features map[string]string
 
+	// remember EPSV support
+	epsvNotSupported bool
+
 	// tracks the current type (e.g. ASCII/Image) of connection
 	currentType string
 
@@ -218,17 +221,25 @@ func (pconn *persistentConn) requestPassive() (string, error) {
 		endIdx     int
 		port       int
 		remoteHost string
+		code       int
+		msg        string
+		err        error
 	)
+
+	if pconn.epsvNotSupported {
+		goto PASV
+	}
 
 	// Extended PaSsiVe (same idea as PASV, but works with IPv6).
 	// See http://tools.ietf.org/html/rfc2428.
-	code, msg, err := pconn.sendCommand("EPSV")
+	code, msg, err = pconn.sendCommand("EPSV")
 	if err != nil {
 		return "", err
 	}
 
 	if code != replyEnteringExtendedPassiveMode {
 		pconn.debug("server doesn't support EPSV: %d-%s", code, msg)
+		pconn.epsvNotSupported = true
 		goto PASV
 	}
 
