@@ -304,33 +304,127 @@ PASV:
 		port |= portOctet << (byte(1-i) * 8)
 	}
 
-	return fmt.Sprintf("%s:%d", ip.String(), port), nil
+	return net.JoinHostPort(ip.String(), strconv.Itoa(port)), nil
 }
 
-func (pconn *persistentConn) openDataConn() (net.Conn, error) {
-	host, err := pconn.requestPassive()
-	if err != nil {
-		return nil, err
-	}
-
-	pconn.debug("opening data connection to %s", host)
-	dc, err := net.DialTimeout("tcp", host, pconn.config.Timeout)
-
-	if err != nil {
-		var isTemporary bool
-		if ne, ok := err.(net.Error); ok {
-			isTemporary = ne.Temporary()
+func (pconn *persistentConn) prepareDataConn() (func() (net.Conn, error), error) {
+	if pconn.config.ActiveTransfers {
+		listener, err := pconn.listenActive()
+		if err != nil {
+			return nil, err
 		}
-		return nil, ftpError{err: err, temporary: isTemporary}
+
+		return func() (net.Conn, error) {
+			defer func() {
+				if err := listener.Close(); err != nil {
+					pconn.debug("error closing data connection listener: %s", err)
+				}
+			}()
+
+			listener.SetDeadline(time.Now().Add(pconn.config.Timeout))
+			dc, netErr := listener.Accept()
+
+			if netErr != nil {
+				var isTemporary bool
+				if ne, ok := netErr.(net.Error); ok {
+					isTemporary = ne.Temporary()
+				}
+				return nil, ftpError{err: netErr, temporary: isTemporary}
+			}
+
+			if pconn.config.TLSConfig != nil {
+				dc = tls.Server(dc, pconn.config.TLSConfig)
+				pconn.debug("upgraded active connection to TLS")
+			}
+
+			pconn.dataConn = dc
+			return dc, nil
+		}, nil
+	} else {
+		host, err := pconn.requestPassive()
+		if err != nil {
+			return nil, err
+		}
+
+		pconn.debug("opening data connection to %s", host)
+		dc, netErr := net.DialTimeout("tcp", host, pconn.config.Timeout)
+
+		if netErr != nil {
+			var isTemporary bool
+			if ne, ok := netErr.(net.Error); ok {
+				isTemporary = ne.Temporary()
+			}
+			return nil, ftpError{err: netErr, temporary: isTemporary}
+		}
+
+		if pconn.config.TLSConfig != nil {
+			pconn.debug("upgrading data connection to TLS")
+			dc = tls.Client(dc, pconn.config.TLSConfig)
+		}
+
+		return func() (net.Conn, error) {
+			pconn.dataConn = dc
+			return dc, nil
+		}, nil
+	}
+}
+
+func (pconn *persistentConn) listenActive() (*net.TCPListener, error) {
+	listenAddr := pconn.config.ActiveListenAddr
+
+	if listenAddr == "" {
+		listenAddr = pconn.controlConn.LocalAddr().String()
+	} else if listenAddr[0] == ':' {
+		myHostPort := pconn.controlConn.LocalAddr().String()
+		myHost, _, err := net.SplitHostPort(myHostPort)
+		if err != nil {
+			return nil, ftpError{err: fmt.Errorf("error determining local IP: %s (%s)", err, myHostPort)}
+		}
+		listenAddr = net.JoinHostPort(myHost, listenAddr[1:])
 	}
 
-	if pconn.config.TLSConfig != nil {
-		pconn.debug("upgrading data connection to TLS")
-		dc = tls.Client(dc, pconn.config.TLSConfig)
+	tcpAddr, err := net.ResolveTCPAddr("tcp", listenAddr)
+	if err != nil {
+		return nil, ftpError{err: fmt.Errorf("error parsing active listen addr: %s (%s)", err, listenAddr)}
 	}
 
-	pconn.dataConn = dc
-	return dc, nil
+	listener, err := net.ListenTCP("tcp", tcpAddr)
+	if err != nil {
+		return nil, ftpError{err: fmt.Errorf("error listening on %s for active transfer: %s", listenAddr, err)}
+	}
+	pconn.debug("listening on %s for active connection", listener.Addr().String())
+
+	listenHost, listenPortStr, err := net.SplitHostPort(listener.Addr().String())
+	if err != nil {
+		return nil, ftpError{err: fmt.Errorf("error splitting listener addr: %s (%s)", err, listener.Addr().String())}
+	}
+
+	listenPort, err := strconv.Atoi(listenPortStr)
+	if err != nil {
+		return nil, ftpError{err: fmt.Errorf("error parsing listen port: %s (%s)", err, listenPortStr)}
+	}
+
+	hostIP := net.ParseIP(listenHost)
+	if hostIP == nil {
+		return nil, ftpError{err: fmt.Errorf("failed parsing host IP %s", listenHost)}
+	}
+
+	hostIPv4 := hostIP.To4()
+	if hostIPv4 == nil {
+		if err := pconn.sendCommandExpected(200, "EPRT |%d|%s|%d|", 2, listenHost, listenPort); err != nil {
+			return nil, err
+		}
+	} else {
+		err := pconn.sendCommandExpected(200, "PORT %d,%d,%d,%d,%d,%d",
+			hostIPv4[0], hostIPv4[1], hostIPv4[2], hostIPv4[3],
+			listenPort>>8, listenPort&0xFF,
+		)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return listener, nil
 }
 
 func (pconn *persistentConn) setType(t string) error {

@@ -18,7 +18,7 @@ import (
 // time.Parse format string for parsing file mtimes.
 const timeFormat = "20060102150405"
 
-// Delete delets the file "path".
+// Delete deletes the file "path".
 func (c *Client) Delete(path string) error {
 	pconn, err := c.getIdleConn()
 	if err != nil {
@@ -230,21 +230,25 @@ func (c *Client) dataStringList(f string, args ...interface{}) ([]string, error)
 
 	defer c.returnConn(pconn)
 
-	dc, err := pconn.openDataConn()
+	dcGetter, err := pconn.prepareDataConn()
+	if err != nil {
+		return nil, err
+	}
+
+	cmd := fmt.Sprintf(f, args...)
+
+	err = pconn.sendCommandExpected(replyGroupPreliminaryReply, cmd)
+	if err != nil {
+		return nil, err
+	}
+
+	dc, err := dcGetter()
 	if err != nil {
 		return nil, err
 	}
 
 	// to catch early returns
 	defer dc.Close()
-
-	cmd := fmt.Sprintf(f, args...)
-
-	err = pconn.sendCommandExpected(replyGroupPreliminaryReply, cmd)
-
-	if err != nil {
-		return nil, err
-	}
 
 	scanner := bufio.NewScanner(dc)
 	scanner.Split(bufio.ScanLines)

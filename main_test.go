@@ -132,8 +132,10 @@ func startProFTPD() (func(), error) {
 		[]string{binary,
 			"--nodaemon",
 			"--config", path.Join(cwd, "ftpd", "proftpd.conf"),
+			//			"--debug", "10",
 		},
 		&os.ProcAttr{
+			//		Files: []*os.File{os.Stdin, os.Stderr, os.Stderr},
 			Files: []*os.File{os.Stdin},
 		},
 	)
