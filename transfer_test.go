@@ -84,6 +84,40 @@ func TestRetrievePASV(t *testing.T) {
 	}
 }
 
+func TestRetrieveActive(t *testing.T) {
+	for _, addr := range ftpdAddrs {
+		activeConfig := goftpConfig
+		activeConfig.ActiveTransfers = true
+
+		// pretend server doesn't support passive mode to make sure we aren't
+		// still using it
+		activeConfig.stubResponses = map[string]stubResponse{
+			"EPSV": stubResponse{500, `'EPSV': command not understood.`},
+			"PASV": stubResponse{500, `'PASV': command not understood.`},
+		}
+
+		c, err := DialConfig(activeConfig, addr)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		buf := new(bytes.Buffer)
+		err = c.Retrieve("subdir/1234.bin", buf)
+
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if !bytes.Equal([]byte{1, 2, 3, 4}, buf.Bytes()) {
+			t.Errorf("Got %v", buf.Bytes())
+		}
+
+		if c.numOpenConns() != len(c.freeConnCh) {
+			t.Error("Leaked a connection")
+		}
+	}
+}
+
 // io.Writer used to simulate various exceptional cases during
 // file downloads
 type testWriter struct {
@@ -99,7 +133,7 @@ func (tb *testWriter) Write(p []byte) (int, error) {
 	return n, err
 }
 
-// pure-ftpd supports "REST STREAM", so make sure we can resume downloads.
+// pure-ftpd sups "REST STREAM", so make sure we can resume downloads.
 // In this test we are simulating a client write error.
 func TestResumeRetrieveOnWriteError(t *testing.T) {
 	for _, addr := range ftpdAddrs {
@@ -176,6 +210,52 @@ func TestResumeRetrieveOnReadError(t *testing.T) {
 func TestStore(t *testing.T) {
 	for _, addr := range ftpdAddrs {
 		c, err := DialConfig(goftpConfig, addr)
+
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		toSend, err := os.Open("testroot/subdir/1234.bin")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		os.Remove("testroot/git-ignored/foo")
+
+		err = c.Store("git-ignored/foo", toSend)
+
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		stored, err := ioutil.ReadFile("testroot/git-ignored/foo")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if !bytes.Equal([]byte{1, 2, 3, 4}, stored) {
+			t.Errorf("Got %v", stored)
+		}
+
+		if c.numOpenConns() != len(c.freeConnCh) {
+			t.Error("Leaked a connection")
+		}
+	}
+}
+
+func TestStoreActive(t *testing.T) {
+	for _, addr := range ftpdAddrs {
+		activeConfig := goftpConfig
+		activeConfig.ActiveTransfers = true
+
+		// pretend server doesn't support passive mode to make sure we aren't
+		// still using it
+		activeConfig.stubResponses = map[string]stubResponse{
+			"EPSV": stubResponse{500, `'EPSV': command not understood.`},
+			"PASV": stubResponse{500, `'PASV': command not understood.`},
+		}
+
+		c, err := DialConfig(activeConfig, addr)
 
 		if err != nil {
 			t.Fatal(err)

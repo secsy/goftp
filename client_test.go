@@ -39,7 +39,7 @@ func TestTimeoutConnect(t *testing.T) {
 }
 
 func TestExplicitTLS(t *testing.T) {
-	for _, addr := range ftpdAddrs[2:] {
+	for _, addr := range ftpdAddrs {
 		config := Config{
 			User:     "goftp",
 			Password: "rocks",

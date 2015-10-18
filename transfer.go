@@ -158,21 +158,16 @@ func (c *Client) transferFromOffset(path string, dest io.Writer, src io.Reader, 
 		}
 	}
 
-	dc, err := pconn.openDataConn()
+	connGetter, err := pconn.prepareDataConn()
 	if err != nil {
-		pconn.debug("error opening data connection: %s", err)
+		pconn.debug("error preparing data connection: %s", err)
 		return 0, err
 	}
 
-	// to catch early returns
-	defer dc.Close()
-
 	var cmd string
 	if dest == nil && src != nil {
-		dest = dc
 		cmd = "STOR"
 	} else if dest != nil && src == nil {
-		src = dc
 		cmd = "RETR"
 	} else {
 		panic("this shouldn't happen")
@@ -181,6 +176,21 @@ func (c *Client) transferFromOffset(path string, dest io.Writer, src io.Reader, 
 	err = pconn.sendCommandExpected(replyGroupPreliminaryReply, "%s %s", cmd, path)
 	if err != nil {
 		return 0, err
+	}
+
+	dc, err := connGetter()
+	if err != nil {
+		pconn.debug("error getting data connection: %s", err)
+		return 0, err
+	}
+
+	// to catch early returns
+	defer dc.Close()
+
+	if dest == nil {
+		dest = dc
+	} else {
+		src = dc
 	}
 
 	n, err := io.Copy(dest, src)
