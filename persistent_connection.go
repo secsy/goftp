@@ -372,15 +372,18 @@ func (pconn *persistentConn) prepareDataConn() (func() (net.Conn, error), error)
 func (pconn *persistentConn) listenActive() (*net.TCPListener, error) {
 	listenAddr := pconn.config.ActiveListenAddr
 
-	if listenAddr == "" {
-		listenAddr = pconn.controlConn.LocalAddr().String()
+	localAddr := pconn.controlConn.LocalAddr().String()
+	localHost, localPort, err := net.SplitHostPort(localAddr)
+	if err != nil {
+		return nil, ftpError{err: fmt.Errorf("error splitting local address: %s (%s)", err, localAddr)}
+	}
+
+	if listenAddr == ":" {
+		listenAddr = localAddr
+	} else if listenAddr[len(listenAddr)-1] == ':' {
+		listenAddr = net.JoinHostPort(listenAddr[0:len(listenAddr)-1], localPort)
 	} else if listenAddr[0] == ':' {
-		myHostPort := pconn.controlConn.LocalAddr().String()
-		myHost, _, err := net.SplitHostPort(myHostPort)
-		if err != nil {
-			return nil, ftpError{err: fmt.Errorf("error determining local IP: %s (%s)", err, myHostPort)}
-		}
-		listenAddr = net.JoinHostPort(myHost, listenAddr[1:])
+		listenAddr = net.JoinHostPort(localHost, listenAddr[1:])
 	}
 
 	tcpAddr, err := net.ResolveTCPAddr("tcp", listenAddr)
