@@ -15,6 +15,22 @@ import (
 	"time"
 )
 
+type RawConn interface {
+	// Sends command fmt.Sprintf(f, args...) to the server, returning the response code,
+	// response message, and error if any.
+	SendCommand(f string, args ...interface{}) (int, string, error)
+
+	// Opens a data connection to the server. OpenDataConn returns a getter function
+	// because in active transfer mode you must first call OpenDataConn (to tell server
+	// what port to connect to), then send a control command to tell server to initiate
+	// connection, then finally you invoke the getter function to get the actual
+	// net.Conn.
+	OpenDataConn() (func() (net.Conn, error), error)
+
+	// Close the control and data connection, if open.
+	Close() error
+}
+
 // Represents a single connection to an FTP server.
 type persistentConn struct {
 	// control socket
@@ -49,21 +65,39 @@ type persistentConn struct {
 	host string
 }
 
+func (pconn *persistentConn) SendCommand(f string, args ...interface{}) (int, string, error) {
+	return pconn.sendCommand(f, args...)
+}
+
+func (pconn *persistentConn) OpenDataConn() (func() (net.Conn, error), error) {
+	return pconn.prepareDataConn()
+}
+
+func (pconn *persistentConn) Close() error {
+	return pconn.close()
+}
+
 func (pconn *persistentConn) setControlConn(conn net.Conn) {
 	pconn.controlConn = conn
 	pconn.reader = textproto.NewReader(bufio.NewReader(conn))
 	pconn.writer = textproto.NewWriter(bufio.NewWriter(conn))
 }
 
-func (pconn *persistentConn) close() {
+func (pconn *persistentConn) close() error {
 	pconn.debug("closing")
 	if pconn.controlConn != nil {
-		pconn.controlConn.Close()
+		if err := pconn.controlConn.Close(); err != nil {
+			return err
+		}
 	}
 
 	if pconn.dataConn != nil {
-		pconn.dataConn.Close()
+		if err := pconn.dataConn.Close(); err != nil {
+			return err
+		}
 	}
+
+	return nil
 }
 
 func (pconn *persistentConn) sendCommandExpected(expected int, f string, args ...interface{}) error {
