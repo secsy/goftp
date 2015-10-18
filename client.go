@@ -153,6 +153,7 @@ type Client struct {
 	numConnsPerHost map[string]int
 	allCons         map[int]*persistentConn
 	connIdx         int
+	rawConnIdx      int
 	mu              sync.Mutex
 	t0              time.Time
 	closed          bool
@@ -331,6 +332,18 @@ func (c *Client) returnConn(pconn *persistentConn) {
 	c.freeConnCh <- pconn
 }
 
+// OpenRawConn opens a "raw" connection to the server which allows you to run any control
+// or data command you want. See the RawConn interface for more details. The RawConn will
+// not participate in the Client's pool (i.e. does not count against ConnectionsPerHost).
+func (c *Client) OpenRawConn() (RawConn, error) {
+	c.mu.Lock()
+	idx := c.rawConnIdx
+	host := c.hosts[idx%len(c.hosts)]
+	c.rawConnIdx++
+	c.mu.Unlock()
+	return c.openConn(-(idx + 1), host)
+}
+
 // Open and set up a control connection.
 func (c *Client) openConn(idx int, host string) (pconn *persistentConn, err error) {
 	pconn = &persistentConn{
@@ -406,7 +419,9 @@ func (c *Client) openConn(idx int, host string) (pconn *persistentConn, err erro
 		goto Error
 	}
 
-	c.allCons[idx] = pconn
+	if idx >= 0 {
+		c.allCons[idx] = pconn
+	}
 	return pconn, nil
 
 Error:
