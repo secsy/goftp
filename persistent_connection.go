@@ -357,6 +357,8 @@ func (pconn *persistentConn) prepareDataConn() (func() (net.Conn, error), error)
 			return nil, ftpError{err: netErr, temporary: isTemporary}
 		}
 
+		dc.SetDeadline(time.Now().Add(pconn.config.DataTimeout))
+
 		if pconn.config.TLSConfig != nil {
 			pconn.debug("upgrading data connection to TLS")
 			dc = tls.Client(dc, pconn.config.TLSConfig)
