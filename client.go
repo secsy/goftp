@@ -135,7 +135,7 @@ type Config struct {
 	// is specified, it will be used when listening for active connections.
 	ActiveTransfers bool
 
-	// Override the host:port to listen on for active data connections. If the host and/or
+	// Set the host:port to listen on for active data connections. If the host and/or
 	// port is empty, the local address/port of the control connection will be used. A
 	// port of 0 will listen on a random port. If not specified, the default behavior is
 	// ":0", i.e. listen on the local control connection host and a random port.
