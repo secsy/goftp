@@ -348,6 +348,21 @@ PASV:
 	return net.JoinHostPort(ip.String(), strconv.Itoa(port)), nil
 }
 
+type DataConn struct {
+	net.Conn
+	time.Duration
+}
+
+func (c *DataConn) Read(buf []byte) (int, error) {
+	c.Conn.SetDeadline(time.Now().Add(c.Duration))
+	return c.Conn.Read(buf)
+}
+
+func (c *DataConn) Write(buf []byte) (int, error) {
+	c.Conn.SetDeadline(time.Now().Add(c.Duration))
+	return c.Conn.Write(buf)
+}
+
 func (pconn *persistentConn) prepareDataConn() (func() (net.Conn, error), error) {
 	if pconn.config.ActiveTransfers {
 		listener, err := pconn.listenActive()
@@ -378,8 +393,11 @@ func (pconn *persistentConn) prepareDataConn() (func() (net.Conn, error), error)
 				pconn.debug("upgraded active connection to TLS")
 			}
 
-			pconn.dataConn = dc
-			return dc, nil
+			pconn.dataConn = &DataConn{
+				Conn:     dc,
+				Duration: pconn.config.DataTimeout,
+			}
+			return pconn.dataConn, nil
 		}, nil
 	} else {
 		host, err := pconn.requestPassive()
@@ -398,16 +416,17 @@ func (pconn *persistentConn) prepareDataConn() (func() (net.Conn, error), error)
 			return nil, ftpError{err: netErr, temporary: isTemporary}
 		}
 
-		dc.SetDeadline(time.Now().Add(pconn.config.DataTimeout))
-
 		if pconn.config.TLSConfig != nil {
 			pconn.debug("upgrading data connection to TLS")
 			dc = tls.Client(dc, pconn.config.TLSConfig)
 		}
 
 		return func() (net.Conn, error) {
-			pconn.dataConn = dc
-			return dc, nil
+			pconn.dataConn = &DataConn{
+				Conn:     dc,
+				Duration: pconn.config.DataTimeout,
+			}
+			return pconn.dataConn, nil
 		}, nil
 	}
 }
