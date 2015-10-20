@@ -20,12 +20,16 @@ type RawConn interface {
 	// response message, and error if any.
 	SendCommand(f string, args ...interface{}) (int, string, error)
 
-	// Opens a data connection to the server. OpenDataConn returns a getter function
-	// because in active transfer mode you must first call OpenDataConn (to tell server
-	// what port to connect to), then send a control command to tell server to initiate
-	// connection, then finally you invoke the getter function to get the actual
+	// Prepares a data connection to the server. PrepareDataConn returns a getter function
+	// because in active transfer mode you must first call PrepareDataConn (to tell server
+	// what port to connect to), then send a control command to tell the server to initiate
+	// a connection, then finally you invoke the getter function to get the actual
 	// net.Conn.
-	OpenDataConn() (func() (net.Conn, error), error)
+	PrepareDataConn() (func() (net.Conn, error), error)
+
+	// Read a pending response from the server. This is necessary after completing a
+	// data command since the server sends an unsolicited response you must read.
+	ReadResponse() (int, string, error)
 
 	// Close the control and data connection, if open.
 	Close() error
@@ -69,8 +73,12 @@ func (pconn *persistentConn) SendCommand(f string, args ...interface{}) (int, st
 	return pconn.sendCommand(f, args...)
 }
 
-func (pconn *persistentConn) OpenDataConn() (func() (net.Conn, error), error) {
+func (pconn *persistentConn) PrepareDataConn() (func() (net.Conn, error), error) {
 	return pconn.prepareDataConn()
+}
+
+func (pconn *persistentConn) ReadResponse() (int, string, error) {
+	return pconn.readResponse()
 }
 
 func (pconn *persistentConn) Close() error {
@@ -85,16 +93,15 @@ func (pconn *persistentConn) setControlConn(conn net.Conn) {
 
 func (pconn *persistentConn) close() error {
 	pconn.debug("closing")
-	if pconn.controlConn != nil {
-		if err := pconn.controlConn.Close(); err != nil {
-			return err
-		}
-	}
 
 	if pconn.dataConn != nil {
-		if err := pconn.dataConn.Close(); err != nil {
-			return err
-		}
+		// ignore "already closed" error since typically the user of dataConn will
+		// close it, but we still want to make sure it's closed here
+		pconn.dataConn.Close()
+	}
+
+	if pconn.controlConn != nil {
+		return pconn.controlConn.Close()
 	}
 
 	return nil
