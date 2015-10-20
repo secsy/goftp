@@ -350,16 +350,16 @@ PASV:
 
 type DataConn struct {
 	net.Conn
-	time.Duration
+	Timeout time.Duration
 }
 
 func (c *DataConn) Read(buf []byte) (int, error) {
-	c.Conn.SetDeadline(time.Now().Add(c.Duration))
+	c.Conn.SetReadDeadline(time.Now().Add(c.Timeout))
 	return c.Conn.Read(buf)
 }
 
 func (c *DataConn) Write(buf []byte) (int, error) {
-	c.Conn.SetDeadline(time.Now().Add(c.Duration))
+	c.Conn.SetWriteDeadline(time.Now().Add(c.Timeout))
 	return c.Conn.Write(buf)
 }
 
@@ -394,8 +394,8 @@ func (pconn *persistentConn) prepareDataConn() (func() (net.Conn, error), error)
 			}
 
 			pconn.dataConn = &DataConn{
-				Conn:     dc,
-				Duration: pconn.config.DataTimeout,
+				Conn:    dc,
+				Timeout: pconn.config.DataTimeout,
 			}
 			return pconn.dataConn, nil
 		}, nil
@@ -423,8 +423,8 @@ func (pconn *persistentConn) prepareDataConn() (func() (net.Conn, error), error)
 
 		return func() (net.Conn, error) {
 			pconn.dataConn = &DataConn{
-				Conn:     dc,
-				Duration: pconn.config.DataTimeout,
+				Conn:    dc,
+				Timeout: pconn.config.DataTimeout,
 			}
 			return pconn.dataConn, nil
 		}, nil
