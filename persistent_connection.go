@@ -395,7 +395,7 @@ func (pconn *persistentConn) prepareDataConn() (func() (net.Conn, error), error)
 
 			pconn.dataConn = &dataConn{
 				Conn:    dc,
-				Timeout: pconn.config.DataTimeout,
+				Timeout: pconn.config.Timeout,
 			}
 			return pconn.dataConn, nil
 		}, nil
@@ -424,7 +424,7 @@ func (pconn *persistentConn) prepareDataConn() (func() (net.Conn, error), error)
 		return func() (net.Conn, error) {
 			pconn.dataConn = &dataConn{
 				Conn:    dc,
-				Timeout: pconn.config.DataTimeout,
+				Timeout: pconn.config.Timeout,
 			}
 			return pconn.dataConn, nil
 		}, nil

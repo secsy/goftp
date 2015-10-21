@@ -100,11 +100,9 @@ type Config struct {
 	ConnectionsPerHost int
 
 	// Timeout for opening connections and sending control commands. Defaults
-	// to 5 seconds.
+	// to 5 seconds. This value also applies to all indivisual read/write of
+	// data connections.
 	Timeout time.Duration
-
-	// Timeout for data connections. Defaults to 5 minutes.
-	DataTimeout time.Duration
 
 	// TLS Config used for FTPS. If provided, it will be an error if the server
 	// does not support TLS. Both the control and data connection will use TLS.
@@ -172,10 +170,6 @@ func newClient(config Config, hosts []string) *Client {
 
 	if config.Timeout <= 0 {
 		config.Timeout = 5 * time.Second
-	}
-
-	if config.DataTimeout <= 0 {
-		config.DataTimeout = 5 * time.Minute
 	}
 
 	if config.User == "" {
