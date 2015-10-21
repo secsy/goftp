@@ -348,17 +348,17 @@ PASV:
 	return net.JoinHostPort(ip.String(), strconv.Itoa(port)), nil
 }
 
-type DataConn struct {
+type dataConn struct {
 	net.Conn
 	Timeout time.Duration
 }
 
-func (c *DataConn) Read(buf []byte) (int, error) {
+func (c *dataConn) Read(buf []byte) (int, error) {
 	c.Conn.SetReadDeadline(time.Now().Add(c.Timeout))
 	return c.Conn.Read(buf)
 }
 
-func (c *DataConn) Write(buf []byte) (int, error) {
+func (c *dataConn) Write(buf []byte) (int, error) {
 	c.Conn.SetWriteDeadline(time.Now().Add(c.Timeout))
 	return c.Conn.Write(buf)
 }
@@ -393,7 +393,7 @@ func (pconn *persistentConn) prepareDataConn() (func() (net.Conn, error), error)
 				pconn.debug("upgraded active connection to TLS")
 			}
 
-			pconn.dataConn = &DataConn{
+			pconn.dataConn = &dataConn{
 				Conn:    dc,
 				Timeout: pconn.config.DataTimeout,
 			}
@@ -422,7 +422,7 @@ func (pconn *persistentConn) prepareDataConn() (func() (net.Conn, error), error)
 		}
 
 		return func() (net.Conn, error) {
-			pconn.dataConn = &DataConn{
+			pconn.dataConn = &dataConn{
 				Conn:    dc,
 				Timeout: pconn.config.DataTimeout,
 			}
