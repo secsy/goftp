@@ -99,9 +99,8 @@ type Config struct {
 	// concurrent transfers.
 	ConnectionsPerHost int
 
-	// Timeout for opening connections and sending control commands. Defaults
-	// to 5 seconds. This value also applies to all indivisual read/write of
-	// data connections.
+	// Timeout for opening connections, sending control commands, and each read/write
+	// of data transfers. Defaults to 5 seconds.
 	Timeout time.Duration
 
 	// TLS Config used for FTPS. If provided, it will be an error if the server
