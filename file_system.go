@@ -74,6 +74,35 @@ func (c *Client) Mkdir(path string) (string, error) {
 	return dir, nil
 }
 
+// Mkdirs recursive creates directory "path".
+// Like Mkdir(), but makes all intermediate-level directories needed to contain the leaf directory.
+func (c *Client) Mkdirs(path string) (string, error) {
+	dirs := strings.Split(path, "/")
+
+	oldWd, err := c.Getwd()
+	if err != nil {
+		return "", nil
+	}
+
+	var res string
+	for _, d := range dirs {
+		err := c.Setwd(d)
+		res += "/" + d
+		if err != nil {
+			res, err = c.Mkdir(d)
+			err = c.Setwd(d)
+		}
+	}
+
+	c.Setwd(oldWd)
+
+	if err != nil {
+		return "", err
+	}
+
+	return res, nil
+}
+
 // Rmdir removes directory "path".
 func (c *Client) Rmdir(path string) error {
 	pconn, err := c.getIdleConn()
@@ -84,6 +113,23 @@ func (c *Client) Rmdir(path string) error {
 	defer c.returnConn(pconn)
 
 	return pconn.sendCommandExpected(replyFileActionOkay, "RMD %s", path)
+}
+
+// Setwd changes working directory.
+func (c *Client) Setwd(dir string) error {
+	pconn, err := c.getIdleConn()
+	if err != nil {
+		return err
+	}
+
+	defer c.returnConn(pconn)
+
+	err = pconn.sendCommandExpected(replyFileActionOkay, "CWD %s", dir)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // Getwd returns the current working directory.
