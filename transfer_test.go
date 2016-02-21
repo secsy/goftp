@@ -289,6 +289,40 @@ func TestStoreActive(t *testing.T) {
 	}
 }
 
+func TestStoreError(t *testing.T) {
+	for _, addr := range ftpdAddrs {
+		c, err := DialConfig(goftpConfig, addr)
+
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		toSend, err := os.Open("testroot/subdir/1234.bin")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		err = c.Store("does/not/exist", toSend)
+
+		if err == nil {
+			t.Error("no error?")
+		}
+
+		fe, ok := err.(Error)
+		if !ok {
+			t.Fatalf("Store error wasn't an Error: %+v", err)
+		}
+
+		if fe.Code() == 0 || fe.Message() == "" {
+			t.Errorf("code: %d, message: %q", fe.Code(), fe.Message())
+		}
+
+		if c.numOpenConns() != len(c.freeConnCh) {
+			t.Error("Leaked a connection")
+		}
+	}
+}
+
 // io.Reader that also implements io.Seeker interface like
 // *os.File (used to test resuming uploads)
 type testSeeker struct {
