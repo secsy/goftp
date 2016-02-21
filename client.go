@@ -58,10 +58,16 @@ func (e ftpError) Timeout() bool {
 }
 
 func (e ftpError) Code() int {
+	if fe, ok := e.err.(Error); ok {
+		return fe.Code()
+	}
 	return e.code
 }
 
 func (e ftpError) Message() string {
+	if fe, ok := e.err.(Error); ok {
+		return fe.Message()
+	}
 	return e.msg
 }
 
