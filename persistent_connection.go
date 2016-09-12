@@ -180,6 +180,17 @@ func (pconn *persistentConn) readResponse() (int, string, error) {
 			err:       fmt.Errorf("error reading response: %s", err),
 			temporary: true,
 		}
+	} else if code == replyConnectionClosed {
+		pconn.controlConn.SetReadDeadline(time.Now().Add(pconn.config.Timeout))
+		code, msg, err = pconn.reader.ReadResponse(0)
+		if err != nil {
+			pconn.broken = true
+			pconn.debug("error reading second response: %s", err)
+			err = ftpError{
+				err:       fmt.Errorf("error reading response: %s", err),
+				temporary: true,
+			}
+		}
 	}
 	return code, msg, err
 }
