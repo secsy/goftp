@@ -112,6 +112,27 @@ func (c *Client) Getwd() (string, error) {
 	return dir, nil
 }
 
+// Setwd changes the current working directory.
+func (c *Client) Setwd(path string) (error) {
+	pconn, err := c.getIdleConn()
+	if err != nil {
+		return err
+	}
+
+	defer c.returnConn(pconn)
+
+	code, msg, err := pconn.sendCommand("CWD %s", path)
+	if err != nil {
+		return err
+	}
+
+	if code != replyFileActionOkay {
+		return ftpError{code: code, msg: msg}
+	}
+
+	return nil
+}
+
 func commandNotSupporterdError(err error) bool {
 	respCode := err.(ftpError).Code()
 	return respCode == replyCommandSyntaxError || respCode == replyCommandNotImplemented
