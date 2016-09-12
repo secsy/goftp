@@ -63,6 +63,9 @@ type persistentConn struct {
 	// remember EPSV support
 	epsvNotSupported bool
 
+	// remember MLSD support	
+	mlsdNotSupported bool
+
 	// tracks the current type (e.g. ASCII/Image) of connection
 	currentType string
 

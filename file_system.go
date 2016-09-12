@@ -400,7 +400,7 @@ func parseMLST(entry string, skipSelfParent bool) (os.FileInfo, error) {
 	parseError := ftpError{err: fmt.Errorf(`failed parsing MLST entry: %s`, entry)}
 	incompleteError := ftpError{err: fmt.Errorf(`MLST entry incomplete: %s`, entry)}
 
-	parts := strings.Split(entry, "; ")
+	parts := strings.SplitN(entry, "; ", 2)
 	if len(parts) != 2 {
 		return nil, parseError
 	}
@@ -420,7 +420,7 @@ func parseMLST(entry string, skipSelfParent bool) (os.FileInfo, error) {
 		return nil, incompleteError
 	}
 
-	if skipSelfParent && (typ == "cdir" || typ == "pdir" || typ == "." || typ == "..") {
+	if skipSelfParent && (typ == "cdir" || typ == "pdir" || typ == "." || typ == ".."|| parts[1] == "." || parts[1] == "..") {
 		return nil, nil
 	}
 
