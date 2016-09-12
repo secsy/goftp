@@ -242,6 +242,20 @@ func (pconn *persistentConn) setClient() error {
         return nil
 }
 
+func (pconn *persistentConn) setUnicode() error {
+        code, msg, err := pconn.sendCommand("OPTS UTF8 ON")
+        if err != nil {
+                return err
+        }
+
+        if !positiveCompletionReply(code) {
+                pconn.debug("server doesn't support UTF8: %d-%s", code, msg)
+                return nil
+        }
+
+        return nil
+}
+
 func (pconn *persistentConn) logIn() error {
 	if pconn.config.User == "" {
 		return nil
