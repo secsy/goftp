@@ -125,23 +125,34 @@ func commandNotSupporterdError(err error) bool {
 // be used. You may have to set ServerLocation in your config to get (more)
 // accurate ModTimes in this case.
 func (c *Client) ReadDir(path string) ([]os.FileInfo, error) {
-	entries, err := c.dataStringList("MLSD %s", path)
+	pconn, err := c.getIdleConn()
+	if err != nil {
+		return nil, err
+	}
 
+	defer c.returnConn(pconn)
+
+	var entries []string
+
+	if !pconn.mlsdNotSupported {
+		entries, err = c.dataStringList(pconn, "MLSD %s", path)
+	}
 	parser := parseMLST
 
-	if err != nil {
-		if !commandNotSupporterdError(err) {
+	if pconn.mlsdNotSupported || err != nil {
+		if !pconn.mlsdNotSupported && !commandNotSupporterdError(err) {
 			return nil, err
 		}
+		pconn.mlsdNotSupported = true
 
-		entries, err = c.dataStringList("LIST %s", path)
+		entries, err = c.dataStringList(pconn, "LIST %s", path)
 		if err != nil {
 			return nil, err
 		}
 		parser = func(entry string, skipSelfParent bool) (os.FileInfo, error) {
 			return parseLIST(entry, c.config.ServerLocation, skipSelfParent)
 		}
-	}
+        }
 
 	var ret []os.FileInfo
 	for _, entry := range entries {
@@ -169,10 +180,17 @@ func (c *Client) ReadDir(path string) ([]os.FileInfo, error) {
 // is a directory. You may have to set ServerLocation in your config to get
 // (more) accurate ModTimes when using "LIST".
 func (c *Client) Stat(path string) (os.FileInfo, error) {
-	lines, err := c.controlStringList("MLST %s", path)
+	pconn, err := c.getIdleConn()
+	if err != nil {
+		return nil, err
+	}
+
+	defer c.returnConn(pconn)
+
+	lines, err := c.controlStringList(pconn, "MLST %s", path)
 	if err != nil {
 		if commandNotSupporterdError(err) {
-			lines, err = c.dataStringList("LIST %s", path)
+			lines, err = c.dataStringList(pconn, "LIST %s", path)
 			if err != nil {
 				return nil, err
 			}
@@ -204,17 +222,10 @@ func extractDirName(msg string) (string, error) {
 	return strings.Replace(msg[openQuote+1:closeQuote], `""`, `"`, -1), nil
 }
 
-func (c *Client) controlStringList(f string, args ...interface{}) ([]string, error) {
-	pconn, err := c.getIdleConn()
-	if err != nil {
-		return nil, err
-	}
-
-	defer c.returnConn(pconn)
-
+func (c *Client) controlStringList(pconn *persistentConn, f string, args ...interface{}) ([]string, error) {
 	cmd := fmt.Sprintf(f, args...)
 
-	code, msg, err := pconn.sendCommand(cmd)
+	code, msg, _ := pconn.sendCommand(cmd)
 
 	if !positiveCompletionReply(code) {
 		pconn.debug("unexpected response to %s: %d-%s", cmd, code, msg)
@@ -224,14 +235,7 @@ func (c *Client) controlStringList(f string, args ...interface{}) ([]string, err
 	return strings.Split(msg, "\n"), nil
 }
 
-func (c *Client) dataStringList(f string, args ...interface{}) ([]string, error) {
-	pconn, err := c.getIdleConn()
-	if err != nil {
-		return nil, err
-	}
-
-	defer c.returnConn(pconn)
-
+func (c *Client) dataStringList(pconn *persistentConn, f string, args ...interface{}) ([]string, error) {
 	dcGetter, err := pconn.prepareDataConn()
 	if err != nil {
 		return nil, err
