@@ -148,7 +148,9 @@ func (c *Client) ReadDir(path string) ([]os.FileInfo, error) {
 		info, err := parser(entry, true)
 		if err != nil {
 			c.debug("error in ReadDir: %s", err)
-			return nil, err
+			if !strings.Contains(err.Error(), "incomplete") {
+				return nil, err
+			}
 		}
 
 		if info == nil {
