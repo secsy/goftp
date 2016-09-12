@@ -205,7 +205,7 @@ func (pconn *persistentConn) fetchFeatures() error {
 	}
 
 	for _, line := range strings.Split(msg, "\n") {
-		if line[0] == ' ' {
+		if len(line) > 0 && line[0] == ' ' {
 			parts := strings.SplitN(strings.TrimSpace(line), " ", 2)
 			if len(parts) == 1 {
 				pconn.features[strings.ToUpper(parts[0])] = ""
