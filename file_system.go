@@ -321,6 +321,66 @@ func (f *ftpFile) Sys() interface{} {
 	return f.raw
 }
 
+var dirRegex = regexp.MustCompile(`^\s*(\S+\s+\S+\s{0,1}\S{2})\s+(\S+)\s+(.*)`)
+var dirTimeFormats = []string{
+        "01-02-06  03:04",
+        "01-02-06  03:04PM",
+        "2006-01-02  15:04",
+}
+
+// 08/03/2016  17:13    <DIR>          directory-name
+// 08/07/2016  17:20             1,135 file-name
+// or
+// 02-10-16  12:10PM           1067784 file.exe
+func parseDirLIST(entry string, loc *time.Location, skipSelfParent bool) (os.FileInfo, error) {
+        matches := dirRegex.FindStringSubmatch(entry)
+
+        if len(matches) == 0 {
+                return nil, ftpError{err: fmt.Errorf(`failed parsing LIST entry: %s`, entry)}
+        }
+
+        if skipSelfParent && (matches[3] == "." || matches[3] == "..") {
+                return nil, nil
+        }
+
+        var err error
+
+        var size uint64
+        var mode os.FileMode = 0400
+        if strings.Contains(matches[2], "DIR") {
+                mode |= os.ModeDir
+        } else {
+            size, err = strconv.ParseUint(matches[2], 10, 64)
+            if err != nil {
+                    return nil, ftpError{err: fmt.Errorf(`failed parsing LIST entry's size: %s (%s)`, err, entry)}
+            }
+        }
+
+        var mtime time.Time
+        for _, format := range dirTimeFormats {
+                if len(entry) >= len(format) {
+                        mtime, err = time.ParseInLocation(format, matches[1], loc)
+                        if err == nil {
+                                break
+                        }
+                }
+        }
+
+        if err != nil {
+                return nil, ftpError{err: fmt.Errorf(`failed parsing LIST entry's mtime: %s (%s)`, err, entry)}
+        }
+
+        info := &ftpFile{
+                name:  filepath.Base(matches[3]),
+                mode:  mode,
+                mtime: mtime,
+                raw:   entry,
+                size:  int64(size),
+        }
+
+        return info, nil
+}
+
 var lsRegex = regexp.MustCompile(`^\s*(\S)(\S{3})(\S{3})(\S{3})(?:\s+\S+){3}\s+(\d+)\s+(\w+\s+\d+)\s+([\d:]+)\s+(.+)$`)
 
 // total 404456
@@ -332,7 +392,8 @@ func parseLIST(entry string, loc *time.Location, skipSelfParent bool) (os.FileIn
 
 	matches := lsRegex.FindStringSubmatch(entry)
 	if len(matches) == 0 {
-		return nil, ftpError{err: fmt.Errorf(`failed parsing LIST entry: %s`, entry)}
+		info, err := parseDirLIST(entry, loc, skipSelfParent)
+		return info, err
 	}
 
 	if skipSelfParent && (matches[8] == "." || matches[8] == "..") {
