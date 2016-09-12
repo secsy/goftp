@@ -256,6 +256,20 @@ func (pconn *persistentConn) setUnicode() error {
         return nil
 }
 
+func (pconn *persistentConn) setMLST() error {
+        code, msg, err := pconn.sendCommand("OPTS MLST type;size;modify;perm;unix.mode;")
+        if err != nil {
+                return err
+        }
+
+        if !positiveCompletionReply(code) {
+                pconn.debug("server doesn't support UTF8: %d-%s", code, msg)
+                return nil
+        }
+
+        return nil
+}
+
 func (pconn *persistentConn) logIn() error {
 	if pconn.config.User == "" {
 		return nil

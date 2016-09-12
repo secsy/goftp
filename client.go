@@ -429,6 +429,12 @@ func (c *Client) openConn(idx int, host string) (pconn *persistentConn, err erro
                 }
         }
 
+        if pconn.hasFeature("MLST") {
+                if err = pconn.setMLST(); err != nil {
+                        goto Error
+                }
+        }
+
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
