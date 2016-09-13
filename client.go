@@ -425,7 +425,7 @@ func (c *Client) openConn(idx int, host string) (pconn *persistentConn, err erro
 
         if pconn.hasFeature("UTF8") {
                 if err = pconn.setUnicode(); err != nil {
-                       goto Error
+			goto Error
                 }
         }
 
