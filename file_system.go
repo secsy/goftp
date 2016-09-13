@@ -173,7 +173,7 @@ func (c *Client) ReadDir(path string) ([]os.FileInfo, error) {
 		parser = func(entry string, skipSelfParent bool) (os.FileInfo, error) {
 			return parseLIST(entry, c.config.ServerLocation, skipSelfParent)
 		}
-        }
+	}
 
 	var ret []os.FileInfo
 	for _, entry := range entries {
