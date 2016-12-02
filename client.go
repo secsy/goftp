@@ -44,9 +44,8 @@ type ftpError struct {
 func (e ftpError) Error() string {
 	if e.code != 0 {
 		return fmt.Sprintf("unexpected response: %d-%s", e.code, e.msg)
-	} else {
-		return e.err.Error()
 	}
+	return e.err.Error()
 }
 
 func (e ftpError) Temporary() bool {
