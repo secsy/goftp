@@ -112,6 +112,27 @@ func (c *Client) Getwd() (string, error) {
 	return dir, nil
 }
 
+// Setwd changes the current working directory.
+func (c *Client) Setwd(path string) (error) {
+	pconn, err := c.getIdleConn()
+	if err != nil {
+		return err
+	}
+
+	defer c.returnConn(pconn)
+
+	code, msg, err := pconn.sendCommand("CWD %s", path)
+	if err != nil {
+		return err
+	}
+
+	if code != replyFileActionOkay {
+		return ftpError{code: code, msg: msg}
+	}
+
+	return nil
+}
+
 func commandNotSupporterdError(err error) bool {
 	respCode := err.(ftpError).Code()
 	return respCode == replyCommandSyntaxError || respCode == replyCommandNotImplemented
@@ -125,16 +146,27 @@ func commandNotSupporterdError(err error) bool {
 // be used. You may have to set ServerLocation in your config to get (more)
 // accurate ModTimes in this case.
 func (c *Client) ReadDir(path string) ([]os.FileInfo, error) {
-	entries, err := c.dataStringList("MLSD %s", path)
+	pconn, err := c.getIdleConn()
+	if err != nil {
+		return nil, err
+	}
 
+	defer c.returnConn(pconn)
+
+	var entries []string
+
+	if !pconn.mlsdNotSupported {
+		entries, err = c.dataStringList(pconn, "MLSD %s", path)
+	}
 	parser := parseMLST
 
-	if err != nil {
-		if !commandNotSupporterdError(err) {
+	if pconn.mlsdNotSupported || err != nil {
+		if !pconn.mlsdNotSupported && !commandNotSupporterdError(err) {
 			return nil, err
 		}
+		pconn.mlsdNotSupported = true
 
-		entries, err = c.dataStringList("LIST %s", path)
+		entries, err = c.dataStringList(pconn, "LIST %s", path)
 		if err != nil {
 			return nil, err
 		}
@@ -148,7 +180,9 @@ func (c *Client) ReadDir(path string) ([]os.FileInfo, error) {
 		info, err := parser(entry, true)
 		if err != nil {
 			c.debug("error in ReadDir: %s", err)
-			return nil, err
+			if !strings.Contains(err.Error(), "incomplete") {
+				return nil, err
+			}
 		}
 
 		if info == nil {
@@ -167,10 +201,17 @@ func (c *Client) ReadDir(path string) ([]os.FileInfo, error) {
 // is a directory. You may have to set ServerLocation in your config to get
 // (more) accurate ModTimes when using "LIST".
 func (c *Client) Stat(path string) (os.FileInfo, error) {
-	lines, err := c.controlStringList("MLST %s", path)
+	pconn, err := c.getIdleConn()
+	if err != nil {
+		return nil, err
+	}
+
+	defer c.returnConn(pconn)
+
+	lines, err := c.controlStringList(pconn, "MLST %s", path)
 	if err != nil {
 		if commandNotSupporterdError(err) {
-			lines, err = c.dataStringList("LIST %s", path)
+			lines, err = c.dataStringList(pconn, "LIST %s", path)
 			if err != nil {
 				return nil, err
 			}
@@ -202,17 +243,10 @@ func extractDirName(msg string) (string, error) {
 	return strings.Replace(msg[openQuote+1:closeQuote], `""`, `"`, -1), nil
 }
 
-func (c *Client) controlStringList(f string, args ...interface{}) ([]string, error) {
-	pconn, err := c.getIdleConn()
-	if err != nil {
-		return nil, err
-	}
-
-	defer c.returnConn(pconn)
-
+func (c *Client) controlStringList(pconn *persistentConn, f string, args ...interface{}) ([]string, error) {
 	cmd := fmt.Sprintf(f, args...)
 
-	code, msg, err := pconn.sendCommand(cmd)
+	code, msg, _ := pconn.sendCommand(cmd)
 
 	if !positiveCompletionReply(code) {
 		pconn.debug("unexpected response to %s: %d-%s", cmd, code, msg)
@@ -222,14 +256,7 @@ func (c *Client) controlStringList(f string, args ...interface{}) ([]string, err
 	return strings.Split(msg, "\n"), nil
 }
 
-func (c *Client) dataStringList(f string, args ...interface{}) ([]string, error) {
-	pconn, err := c.getIdleConn()
-	if err != nil {
-		return nil, err
-	}
-
-	defer c.returnConn(pconn)
-
+func (c *Client) dataStringList(pconn *persistentConn, f string, args ...interface{}) ([]string, error) {
 	dcGetter, err := pconn.prepareDataConn()
 	if err != nil {
 		return nil, err
@@ -321,6 +348,66 @@ func (f *ftpFile) Sys() interface{} {
 	return f.raw
 }
 
+var dirRegex = regexp.MustCompile(`^\s*(\S+\s+\S+\s{0,1}\S{2})\s+(\S+)\s+(.*)`)
+var dirTimeFormats = []string{
+        "01-02-06  03:04",
+        "01-02-06  03:04PM",
+        "2006-01-02  15:04",
+}
+
+// 08/03/2016  17:13    <DIR>          directory-name
+// 08/07/2016  17:20             1,135 file-name
+// or
+// 02-10-16  12:10PM           1067784 file.exe
+func parseDirLIST(entry string, loc *time.Location, skipSelfParent bool) (os.FileInfo, error) {
+        matches := dirRegex.FindStringSubmatch(entry)
+
+        if len(matches) == 0 {
+                return nil, ftpError{err: fmt.Errorf(`failed parsing LIST entry: %s`, entry)}
+        }
+
+        if skipSelfParent && (matches[3] == "." || matches[3] == "..") {
+                return nil, nil
+        }
+
+        var err error
+
+        var size uint64
+        var mode os.FileMode = 0400
+        if strings.Contains(matches[2], "DIR") {
+                mode |= os.ModeDir
+        } else {
+            size, err = strconv.ParseUint(matches[2], 10, 64)
+            if err != nil {
+                    return nil, ftpError{err: fmt.Errorf(`failed parsing LIST entry's size: %s (%s)`, err, entry)}
+            }
+        }
+
+        var mtime time.Time
+        for _, format := range dirTimeFormats {
+                if len(entry) >= len(format) {
+                        mtime, err = time.ParseInLocation(format, matches[1], loc)
+                        if err == nil {
+                                break
+                        }
+                }
+        }
+
+        if err != nil {
+                return nil, ftpError{err: fmt.Errorf(`failed parsing LIST entry's mtime: %s (%s)`, err, entry)}
+        }
+
+        info := &ftpFile{
+                name:  filepath.Base(matches[3]),
+                mode:  mode,
+                mtime: mtime,
+                raw:   entry,
+                size:  int64(size),
+        }
+
+        return info, nil
+}
+
 var lsRegex = regexp.MustCompile(`^\s*(\S)(\S{3})(\S{3})(\S{3})(?:\s+\S+){3}\s+(\d+)\s+(\w+\s+\d+)\s+([\d:]+)\s+(.+)$`)
 
 // total 404456
@@ -332,7 +419,8 @@ func parseLIST(entry string, loc *time.Location, skipSelfParent bool) (os.FileIn
 
 	matches := lsRegex.FindStringSubmatch(entry)
 	if len(matches) == 0 {
-		return nil, ftpError{err: fmt.Errorf(`failed parsing LIST entry: %s`, entry)}
+		info, err := parseDirLIST(entry, loc, skipSelfParent)
+		return info, err
 	}
 
 	if skipSelfParent && (matches[8] == "." || matches[8] == "..") {
@@ -400,7 +488,7 @@ func parseMLST(entry string, skipSelfParent bool) (os.FileInfo, error) {
 	parseError := ftpError{err: fmt.Errorf(`failed parsing MLST entry: %s`, entry)}
 	incompleteError := ftpError{err: fmt.Errorf(`MLST entry incomplete: %s`, entry)}
 
-	parts := strings.Split(entry, "; ")
+	parts := strings.SplitN(entry, "; ", 2)
 	if len(parts) != 2 {
 		return nil, parseError
 	}
@@ -420,7 +508,7 @@ func parseMLST(entry string, skipSelfParent bool) (os.FileInfo, error) {
 		return nil, incompleteError
 	}
 
-	if skipSelfParent && (typ == "cdir" || typ == "pdir" || typ == "." || typ == "..") {
+	if skipSelfParent && (typ == "cdir" || typ == "pdir" || typ == "." || typ == ".."|| parts[1] == "." || parts[1] == "..") {
 		return nil, nil
 	}
 

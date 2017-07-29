@@ -63,6 +63,9 @@ type persistentConn struct {
 	// remember EPSV support
 	epsvNotSupported bool
 
+	// remember MLSD support	
+	mlsdNotSupported bool
+
 	// tracks the current type (e.g. ASCII/Image) of connection
 	currentType string
 
@@ -177,6 +180,17 @@ func (pconn *persistentConn) readResponse() (int, string, error) {
 			err:       fmt.Errorf("error reading response: %s", err),
 			temporary: true,
 		}
+	} else if code == replyConnectionClosed {
+		pconn.controlConn.SetReadDeadline(time.Now().Add(pconn.config.Timeout))
+		code, msg, err = pconn.reader.ReadResponse(0)
+		if err != nil {
+			pconn.broken = true
+			pconn.debug("error reading second response: %s", err)
+			err = ftpError{
+				err:       fmt.Errorf("error reading response: %s", err),
+				temporary: true,
+			}
+		}
 	}
 	return code, msg, err
 }
@@ -205,7 +219,7 @@ func (pconn *persistentConn) fetchFeatures() error {
 	}
 
 	for _, line := range strings.Split(msg, "\n") {
-		if line[0] == ' ' {
+		if len(line) > 0 && line[0] == ' ' {
 			parts := strings.SplitN(strings.TrimSpace(line), " ", 2)
 			if len(parts) == 1 {
 				pconn.features[strings.ToUpper(parts[0])] = ""
@@ -226,6 +240,48 @@ func (pconn *persistentConn) hasFeature(name string) bool {
 func (pconn *persistentConn) hasFeatureWithArg(name, arg string) bool {
 	val, found := pconn.features[name]
 	return found && strings.ToUpper(arg) == val
+}
+
+func (pconn *persistentConn) setClient() error {
+        code, msg, err := pconn.sendCommand("CLNT GoFTP")
+        if err != nil {
+                return err
+        }
+
+        if !positiveCompletionReply(code) {
+                pconn.debug("server doesn't support CLNT: %d-%s", code, msg)
+                return nil
+        }
+
+        return nil
+}
+
+func (pconn *persistentConn) setUnicode() error {
+        code, msg, err := pconn.sendCommand("OPTS UTF8 ON")
+        if err != nil {
+                return err
+        }
+
+        if !positiveCompletionReply(code) {
+                pconn.debug("server doesn't support UTF8: %d-%s", code, msg)
+                return nil
+        }
+
+        return nil
+}
+
+func (pconn *persistentConn) setMLST() error {
+        code, msg, err := pconn.sendCommand("OPTS MLST type;size;modify;perm;unix.mode;")
+        if err != nil {
+                return err
+        }
+
+        if !positiveCompletionReply(code) {
+                pconn.debug("server doesn't support UTF8: %d-%s", code, msg)
+                return nil
+        }
+
+        return nil
 }
 
 func (pconn *persistentConn) logIn() error {
