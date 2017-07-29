@@ -144,6 +144,11 @@ type Config struct {
 	// ":0", i.e. listen on the local control connection host and a random port.
 	ActiveListenAddr string
 
+	// Disables EPSV in favour of PASV. This is useful in cases where EPSV connections
+	// neither complete nor downgrade to PASV successfully by themselves, resulting in
+	// hung connections.
+	DisableEPSV bool
+
 	// For testing convenience.
 	stubResponses map[string]stubResponse
 }
@@ -353,12 +358,13 @@ func (c *Client) OpenRawConn() (RawConn, error) {
 // Open and set up a control connection.
 func (c *Client) openConn(idx int, host string) (pconn *persistentConn, err error) {
 	pconn = &persistentConn{
-		idx:         idx,
-		features:    make(map[string]string),
-		config:      c.config,
-		t0:          c.t0,
-		currentType: "A",
-		host:        host,
+		idx:              idx,
+		features:         make(map[string]string),
+		config:           c.config,
+		t0:               c.t0,
+		currentType:      "A",
+		host:             host,
+		epsvNotSupported: c.config.DisableEPSV,
 	}
 
 	var conn net.Conn
