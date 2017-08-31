@@ -175,7 +175,8 @@ func (c *Client) Stat(path string) (os.FileInfo, error) {
 				return nil, err
 			}
 
-			if len(lines) != 1 {
+			// The last file listing entry has a EOL even if there's only one file being listed.
+			if len(lines) != 2 || lines[1] != "" {
 				return nil, ftpError{err: fmt.Errorf("unexpected LIST response: %v", lines)}
 			}
 
