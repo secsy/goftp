@@ -504,6 +504,19 @@ func (pconn *persistentConn) setType(t string) error {
 	return err
 }
 
+func (pconn *persistentConn) requireTLSDataConnection() error {
+	err := pconn.sendCommandExpected(replyGroupPositiveCompletion, "PBSZ 0")
+	if err != nil {
+		return err
+	}
+
+	err = pconn.sendCommandExpected(replyGroupPositiveCompletion, "PROT P")
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 func (pconn *persistentConn) logInTLS() error {
 	err := pconn.sendCommandExpected(replyAuthOkayNoDataNeeded, "AUTH TLS")
 	if err != nil {
@@ -516,13 +529,7 @@ func (pconn *persistentConn) logInTLS() error {
 	if err != nil {
 		return err
 	}
-
-	err = pconn.sendCommandExpected(replyGroupPositiveCompletion, "PBSZ 0")
-	if err != nil {
-		return err
-	}
-
-	err = pconn.sendCommandExpected(replyGroupPositiveCompletion, "PROT P")
+	err = pconn.requireTLSDataConnection()
 	if err != nil {
 		return err
 	}

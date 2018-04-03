@@ -413,6 +413,12 @@ func (c *Client) openConn(idx int, host string) (pconn *persistentConn, err erro
 		err = pconn.logInTLS()
 	} else {
 		err = pconn.logIn()
+		if err != nil {
+			goto Error
+		}
+		if c.config.TLSConfig != nil {
+			err = pconn.requireTLSDataConnection()
+		}
 	}
 
 	if err != nil {
