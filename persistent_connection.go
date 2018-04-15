@@ -146,7 +146,7 @@ func (pconn *persistentConn) sendCommand(f string, args ...interface{}) (int, st
 	}
 
 	pconn.controlConn.SetWriteDeadline(time.Now().Add(pconn.config.Timeout))
-	err := pconn.writer.PrintfLine(cmd)
+	err := pconn.writer.PrintfLine("%s", cmd)
 
 	if err != nil {
 		pconn.broken = true
