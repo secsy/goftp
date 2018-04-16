@@ -5,41 +5,10 @@
 package goftp
 
 import (
-	"fmt"
 	"io/ioutil"
 	"strings"
 	"testing"
 )
-
-func ExampleClient_OpenRawConn() {
-	// ignore errors for brevity
-
-	client, _ := Dial("ftp.hq.nasa.gov")
-
-	rawConn, _ := client.OpenRawConn()
-
-	code, msg, _ := rawConn.SendCommand("FEAT")
-	fmt.Printf("FEAT: %d-%s\n", code, msg)
-
-	// prepare data connection
-	dcGetter, _ := rawConn.PrepareDataConn()
-
-	// cause server to initiate data connection
-	rawConn.SendCommand("LIST")
-
-	// get actual data connection
-	dc, _ := dcGetter()
-
-	data, _ := ioutil.ReadAll(dc)
-	fmt.Printf("LIST response: %s\n", data)
-
-	// close data connection
-	dc.Close()
-
-	// read final response from server after data transfer
-	code, msg, _ = rawConn.ReadResponse()
-	fmt.Printf("Final response: %d-%s\n", code, msg)
-}
 
 func TestRawConn(t *testing.T) {
 	for _, addr := range ftpdAddrs {

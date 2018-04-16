@@ -2,17 +2,21 @@
 // Use of this source code is governed by a MIT-style
 // license that can be found in the LICENSE file.
 
-package goftp
+package goftp_test
 
 import (
 	"bytes"
+	"fmt"
+	"io/ioutil"
 	"os"
 	"time"
+
+	"github.com/secsy/goftp"
 )
 
 func Example() {
 	// Create client object with default config
-	client, err := Dial("ftp.example.com")
+	client, err := goftp.Dial("ftp.example.com")
 	if err != nil {
 		panic(err)
 	}
@@ -41,7 +45,7 @@ func Example() {
 }
 
 func Example_config() {
-	config := Config{
+	config := goftp.Config{
 		User:               "jlpicard",
 		Password:           "beverly123",
 		ConnectionsPerHost: 10,
@@ -49,7 +53,7 @@ func Example_config() {
 		Logger:             os.Stderr,
 	}
 
-	client, err := DialConfig(config, "ftp.example.com")
+	client, err := goftp.DialConfig(config, "ftp.example.com")
 	if err != nil {
 		panic(err)
 	}
@@ -60,4 +64,34 @@ func Example_config() {
 	if err != nil {
 		panic(err)
 	}
+}
+
+func ExampleClient_OpenRawConn() {
+	// ignore errors for brevity
+
+	client, _ := goftp.Dial("ftp.hq.nasa.gov")
+
+	rawConn, _ := client.OpenRawConn()
+
+	code, msg, _ := rawConn.SendCommand("FEAT")
+	fmt.Printf("FEAT: %d-%s\n", code, msg)
+
+	// prepare data connection
+	dcGetter, _ := rawConn.PrepareDataConn()
+
+	// cause server to initiate data connection
+	rawConn.SendCommand("LIST")
+
+	// get actual data connection
+	dc, _ := dcGetter()
+
+	data, _ := ioutil.ReadAll(dc)
+	fmt.Printf("LIST response: %s\n", data)
+
+	// close data connection
+	dc.Close()
+
+	// read final response from server after data transfer
+	code, msg, _ = rawConn.ReadResponse()
+	fmt.Printf("Final response: %d-%s\n", code, msg)
 }
