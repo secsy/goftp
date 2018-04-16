@@ -1,6 +1,4 @@
-#!/bin/bash
-
-set -e
+#!/bin/bash -ex
 
 goftp_dir=`pwd`
 
@@ -19,7 +17,13 @@ perl -pi -e 's/(\Qpr_inet_set_proto_nodelay(conn->pool, conn, 1);\E)/$1\n(void) 
 # fix a segfault on mac
 perl -pi -e 's/\Qsstrncpy(cwd, dir, sizeof(cwd));\E/char dircpy[sizeof(cwd)];\nsstrncpy(dircpy, dir, sizeof(dircpy));\nsstrncpy(cwd, dircpy, sizeof(cwd));/' src/fsio.c
 
-./configure --with-modules=mod_tls --disable-ident
+if [ "$(uname)" == "Darwin" ]; then
+  cflags=-I/usr/local/opt/openssl/include
+  ldflags=-L/usr/local/opt/openssl/lib
+fi
+
+CFLAGS=$cflags LDFLAGS=$ldflags ./configure --with-modules=mod_tls --disable-ident
+
 make
 mv proftpd ..
 
@@ -27,7 +31,7 @@ cd ..
 
 cat > proftpd.conf <<CONF
 ServerType standalone
-Port 2123
+Port 2124
 DefaultAddress 127.0.0.1
 AuthUserFile $ftpd_dir/users.txt
 AuthOrder mod_auth_file.c
@@ -84,18 +88,18 @@ VpOorURz8ETlfAA=
 -----END CERTIFICATE-----
 CERT
 
-curl -O http://download.pureftpd.org/pub/pure-ftpd/releases/obsolete/pure-ftpd-1.0.36.tar.gz
+curl -O https://download.pureftpd.org/pub/pure-ftpd/releases/obsolete/pure-ftpd-1.0.36.tar.gz
 tar -xzf pure-ftpd-1.0.36.tar.gz
 cd pure-ftpd-1.0.36
 
 # build normal binary with explicit tls support
-./configure --with-nonroot --with-puredb --with-tls --with-certfile=$ftpd_dir/pure-ftpd.pem
+CFLAGS=$cflags LDFLAGS=$ldflags ./configure --with-nonroot --with-puredb --with-tls --with-certfile=$ftpd_dir/pure-ftpd.pem
 make clean
 make
 mv src/pure-ftpd ..
 
 # build separate binary with implicit tls
-./configure --with-nonroot --with-puredb --with-tls --with-certfile=$ftpd_dir/pure-ftpd.pem --with-implicittls
+CFLAGS=$cflags LDFLAGS=$ldflags ./configure --with-nonroot --with-puredb --with-tls --with-certfile=$ftpd_dir/pure-ftpd.pem --with-implicittls
 make clean
 make
 mv src/pure-ftpd ../pure-ftpd-implicittls
