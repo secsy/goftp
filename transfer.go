@@ -17,6 +17,12 @@ import (
 // Retrieve will also verify the file's size after the transfer if the
 // server supports the SIZE command.
 func (c *Client) Retrieve(path string, dest io.Writer) error {
+	return c.RetrievePartial(path, dest, 0)
+}
+
+// RetrievePartial is same as Retrieve, but allows specifying an offset for a pre-existing
+// partially transfered file.
+func (c *Client) RetrievePartial(path string, dest io.Writer, bytesSoFar int64) error {
 	// fetch file size to check against how much we transferred
 	size, err := c.size(path)
 	if err != nil {
@@ -25,7 +31,6 @@ func (c *Client) Retrieve(path string, dest io.Writer) error {
 
 	canResume := c.canResume()
 
-	var bytesSoFar int64
 	for {
 		n, err := c.transferFromOffset(path, dest, nil, bytesSoFar)
 
