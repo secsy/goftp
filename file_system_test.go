@@ -246,7 +246,7 @@ func TestReadDir(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		if len(list) != 3 {
+		if len(list) != 4 {
 			t.Errorf("expected 3 items, got %d", len(list))
 		}
 
@@ -267,7 +267,7 @@ func TestReadDir(t *testing.T) {
 
 		// sanity check names are what we expected
 		sort.Strings(names)
-		if !reflect.DeepEqual(names, []string{"git-ignored", "lorem.txt", "subdir"}) {
+		if !reflect.DeepEqual(names, []string{"email%40mail.com.txt", "git-ignored", "lorem.txt", "subdir"}) {
 			t.Errorf("got: %v", names)
 		}
 
@@ -297,7 +297,7 @@ func TestReadDirNoMLSD(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		if len(list) != 3 {
+		if len(list) != 4 {
 			t.Errorf("expected 3 items, got %d", len(list))
 		}
 
@@ -318,7 +318,7 @@ func TestReadDirNoMLSD(t *testing.T) {
 
 		// sanity check names are what we expected
 		sort.Strings(names)
-		if !reflect.DeepEqual(names, []string{"git-ignored", "lorem.txt", "subdir"}) {
+		if !reflect.DeepEqual(names, []string{"email%40mail.com.txt", "git-ignored", "lorem.txt", "subdir"}) {
 			t.Errorf("got: %v", names)
 		}
 

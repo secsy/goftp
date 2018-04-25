@@ -47,6 +47,13 @@ func TestRetrieve(t *testing.T) {
 		if c.numOpenConns() != len(c.freeConnCh) {
 			t.Error("Leaked a connection")
 		}
+
+		urlencoded := new(bytes.Buffer)
+		err = c.Retrieve("email%40mail.com.txt", urlencoded)
+
+		if err != nil {
+			t.Errorf("%s", "Expected to successfully fetch files with % char in the name")
+		}
 	}
 }
 
