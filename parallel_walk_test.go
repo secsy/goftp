@@ -2,7 +2,7 @@
 // Use of this source code is governed by a MIT-style
 // license that can be found in the LICENSE file.
 
-package goftp_test
+package goftp
 
 import (
 	"fmt"
@@ -10,14 +10,12 @@ import (
 	"path"
 	"path/filepath"
 	"sync/atomic"
-
-	"github.com/secsy/goftp"
 )
 
 // Just for fun, walk an ftp server in parallel. I make no claim that this is
 // correct or a good idea.
 func ExampleClient_ReadDir_parallelWalk() {
-	client, err := goftp.Dial("ftp.hq.nasa.gov")
+	client, err := Dial("ftp.hq.nasa.gov")
 	if err != nil {
 		panic(err)
 	}
@@ -25,7 +23,7 @@ func ExampleClient_ReadDir_parallelWalk() {
 	Walk(client, "", func(fullPath string, info os.FileInfo, err error) error {
 		if err != nil {
 			// no permissions is okay, keep walking
-			if err.(goftp.Error).Code() == 550 {
+			if err.(Error).Code() == 550 {
 				return nil
 			}
 			return err
@@ -39,7 +37,7 @@ func ExampleClient_ReadDir_parallelWalk() {
 
 // Walk a FTP file tree in parallel with prunability and error handling.
 // See http://golang.org/pkg/path/filepath/#Walk for interface details.
-func Walk(client *goftp.Client, root string, walkFn filepath.WalkFunc) (ret error) {
+func Walk(client *Client, root string, walkFn filepath.WalkFunc) (ret error) {
 	dirsToCheck := make(chan string, 100)
 
 	var workCount int32 = 1
