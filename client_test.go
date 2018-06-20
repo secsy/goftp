@@ -6,7 +6,9 @@ package goftp
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
+	"net"
 	"sync"
 	"testing"
 	"time"
@@ -40,9 +42,16 @@ func TestTimeoutConnect(t *testing.T) {
 
 func TestExplicitTLS(t *testing.T) {
 	for _, addr := range ftpdAddrs {
+		var gotAddr string
 		config := Config{
 			User:     "goftp",
 			Password: "rocks",
+			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+				if gotAddr == "" {
+					gotAddr = addr
+				}
+				return (&net.Dialer{}).DialContext(ctx, network, addr)
+			},
 			TLSConfig: &tls.Config{
 				InsecureSkipVerify: true,
 			},
@@ -62,6 +71,10 @@ func TestExplicitTLS(t *testing.T) {
 
 		if !bytes.Equal([]byte{1, 2, 3, 4}, buf.Bytes()) {
 			t.Errorf("Got %v", buf.Bytes())
+		}
+
+		if gotAddr != addr {
+			t.Errorf("Expected dial to %s, got %s", addr, gotAddr)
 		}
 
 		if c.numOpenConns() != len(c.freeConnCh) {

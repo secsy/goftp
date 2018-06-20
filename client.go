@@ -5,6 +5,7 @@
 package goftp
 
 import (
+	"context"
 	"crypto/tls"
 	"errors"
 	"fmt"
@@ -105,6 +106,10 @@ type Config struct {
 	// concurrent transfers.
 	ConnectionsPerHost int
 
+	// DialContext specifies the dial function for creating unencrypted TCP connections.
+	// If DialContext is nil, then the client dials using package net.
+	DialContext func(ctx context.Context, network, addr string) (net.Conn, error)
+
 	// Timeout for opening connections, sending control commands, and each read/write
 	// of data transfers. Defaults to 5 seconds.
 	Timeout time.Duration
@@ -173,6 +178,11 @@ type Client struct {
 // Construct and return a new client Conn, setting default config
 // values as necessary.
 func newClient(config Config, hosts []string) *Client {
+	if config.DialContext == nil {
+		config.DialContext = (&net.Dialer{
+			Timeout: config.Timeout,
+		}).DialContext
+	}
 
 	if config.ConnectionsPerHost <= 0 {
 		config.ConnectionsPerHost = 5
@@ -369,15 +379,18 @@ func (c *Client) openConn(idx int, host string) (pconn *persistentConn, err erro
 
 	var conn net.Conn
 
+	ctx := context.Background()
+	if c.config.Timeout != 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.config.Timeout)
+		defer cancel()
+	}
+
+	pconn.debug("opening control connection to %s", host)
+	conn, err = c.config.DialContext(ctx, "tcp", host)
 	if c.config.TLSConfig != nil && c.config.TLSMode == TLSImplicit {
-		pconn.debug("opening TLS control connection to %s", host)
-		dialer := &net.Dialer{
-			Timeout: c.config.Timeout,
-		}
-		conn, err = tls.DialWithDialer(dialer, "tcp", host, pconn.config.TLSConfig)
-	} else {
-		pconn.debug("opening control connection to %s", host)
-		conn, err = net.DialTimeout("tcp", host, c.config.Timeout)
+		pconn.debug("configuring implicit TLS control connection to %s", host)
+		conn = tls.Client(conn, pconn.config.TLSConfig)
 	}
 
 	var (
