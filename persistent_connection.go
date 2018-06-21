@@ -311,7 +311,7 @@ func (pconn *persistentConn) requestPassive() (string, error) {
 		goto PASV
 	}
 
-	remoteHost, _, err = net.SplitHostPort(pconn.controlConn.RemoteAddr().String())
+	remoteHost, _, err = net.SplitHostPort(pconn.host)
 	if err != nil {
 		pconn.debug("failed determining remote host: %s", err)
 		goto PASV
