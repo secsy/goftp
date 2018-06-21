@@ -10,6 +10,20 @@ import (
 	"time"
 )
 
+func TestTransportSkipAltProtocol(t *testing.T) {
+	transport := Transport{}
+
+	req, err := http.NewRequest(http.MethodGet, "foo://localhost/foo.txt", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = transport.RoundTrip(req)
+	if err != http.ErrSkipAltProtocol {
+		t.Errorf("Expected err = %v, got %v", http.ErrSkipAltProtocol, err)
+	}
+}
+
 func TestTransportTimeoutConnect(t *testing.T) {
 	config := Config{Timeout: 100 * time.Millisecond}
 	transport := Transport{Config: config}
