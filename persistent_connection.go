@@ -419,12 +419,9 @@ func (pconn *persistentConn) prepareDataConn() (func() (net.Conn, error), error)
 			return nil, err
 		}
 
-		ctx := context.Background()
-		if pconn.config.Timeout != 0 {
-			var cancel context.CancelFunc
-			ctx, cancel = context.WithTimeout(ctx, pconn.config.Timeout)
-			defer cancel()
-		}
+		// FIXME: this method should accept a parent Context
+		ctx, cancel := context.WithTimeout(context.Background(), pconn.config.Timeout)
+		defer cancel()
 
 		pconn.debug("opening data connection to %s", host)
 		dc, netErr := pconn.config.DialContext(ctx, "tcp", host)

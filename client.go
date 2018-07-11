@@ -377,15 +377,11 @@ func (c *Client) openConn(idx int, host string) (pconn *persistentConn, err erro
 		epsvNotSupported: c.config.DisableEPSV,
 	}
 
+	// FIXME: this method should accept a parent Context
+	ctx, cancel := context.WithTimeout(context.Background(), c.config.Timeout)
+	defer cancel()
+
 	var conn net.Conn
-
-	ctx := context.Background()
-	if c.config.Timeout != 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, c.config.Timeout)
-		defer cancel()
-	}
-
 	pconn.debug("opening control connection to %s", host)
 	conn, err = c.config.DialContext(ctx, "tcp", host)
 	if c.config.TLSConfig != nil && c.config.TLSMode == TLSImplicit {
