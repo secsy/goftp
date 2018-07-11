@@ -28,13 +28,11 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 		}
 	}
 
+	// If req.URL.User is non-nil, username and password
+	// will override config even if empty.
 	if req.URL.User != nil {
-		if user := req.URL.User.Username(); user != "" {
-			config.User = user
-		}
-		if password, ok := req.URL.User.Password(); ok {
-			config.Password = password
-		}
+		config.User = req.URL.User.Username()
+		config.Password, _ = req.URL.User.Password()
 	}
 
 	path := strings.TrimPrefix(req.URL.Path, "/")
