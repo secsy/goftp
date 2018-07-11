@@ -106,13 +106,13 @@ type Config struct {
 	// concurrent transfers.
 	ConnectionsPerHost int
 
-	// DialContext specifies the dial function for creating unencrypted TCP connections.
-	// If DialContext is nil, then the client dials using package net.
-	DialContext func(ctx context.Context, network, addr string) (net.Conn, error)
-
 	// Timeout for opening connections, sending control commands, and each read/write
 	// of data transfers. Defaults to 5 seconds.
 	Timeout time.Duration
+
+	// DialContext specifies the dial function for creating unencrypted TCP connections.
+	// If DialContext is nil, then the client dials using package net.
+	DialContext func(ctx context.Context, network, addr string) (net.Conn, error)
 
 	// TLS Config used for FTPS. If provided, it will be an error if the server
 	// does not support TLS. Both the control and data connection will use TLS.
@@ -178,18 +178,18 @@ type Client struct {
 // Construct and return a new client Conn, setting default config
 // values as necessary.
 func newClient(config Config, hosts []string) *Client {
-	if config.DialContext == nil {
-		config.DialContext = (&net.Dialer{
-			Timeout: config.Timeout,
-		}).DialContext
-	}
-
 	if config.ConnectionsPerHost <= 0 {
 		config.ConnectionsPerHost = 5
 	}
 
 	if config.Timeout <= 0 {
 		config.Timeout = 5 * time.Second
+	}
+
+	if config.DialContext == nil {
+		config.DialContext = (&net.Dialer{
+			Timeout: config.Timeout,
+		}).DialContext
 	}
 
 	if config.User == "" {
