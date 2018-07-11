@@ -2,7 +2,7 @@
 // Use of this source code is governed by a MIT-style
 // license that can be found in the LICENSE file.
 
-package goftp
+package goftp_test
 
 import (
 	"bytes"
@@ -10,11 +10,13 @@ import (
 	"io/ioutil"
 	"os"
 	"time"
+
+	"github.com/secsy/goftp"
 )
 
 func Example() {
 	// Create client object with default config
-	client, err := Dial("ftp.example.com")
+	client, err := goftp.Dial("ftp.example.com")
 	if err != nil {
 		panic(err)
 	}
@@ -43,7 +45,7 @@ func Example() {
 }
 
 func Example_config() {
-	config := Config{
+	config := goftp.Config{
 		User:               "jlpicard",
 		Password:           "beverly123",
 		ConnectionsPerHost: 10,
@@ -51,7 +53,7 @@ func Example_config() {
 		Logger:             os.Stderr,
 	}
 
-	client, err := DialConfig(config, "ftp.example.com")
+	client, err := goftp.DialConfig(config, "ftp.example.com")
 	if err != nil {
 		panic(err)
 	}
@@ -67,7 +69,7 @@ func Example_config() {
 func ExampleClient_OpenRawConn() {
 	// ignore errors for brevity
 
-	client, _ := Dial("ftp.hq.nasa.gov")
+	client, _ := goftp.Dial("ftp.hq.nasa.gov")
 
 	rawConn, _ := client.OpenRawConn()
 
