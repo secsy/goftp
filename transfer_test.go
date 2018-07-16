@@ -410,3 +410,23 @@ func TestResumeStoreOnWriteError(t *testing.T) {
 		}
 	}
 }
+
+func TestEmptyLinesFeat(t *testing.T) {
+	for _, addr := range ftpdAddrs {
+		c, err := DialConfig(goftpConfig, addr)
+
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		c.config.stubResponses = map[string]stubResponse{
+			"FEAT": {code: 211, msg: "Extensions supported:\n EPRT\n EPSV\n\nEND"},
+		}
+
+		// stat the file so the client asks for features
+		_, err = c.Stat("subdir/1234.bin")
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+}
