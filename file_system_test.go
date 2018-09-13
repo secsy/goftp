@@ -137,6 +137,24 @@ func TestMkdirRmdir(t *testing.T) {
 	}
 }
 
+func TestChangewd(t *testing.T) {
+	for _, addr := range ftpdAddrs {
+		c, err := DialConfig(Config{User: "goftp", Password: "rocks"}, addr)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		os.Mkdir("testroot/git-ignored/fooxdir", 0x755)
+
+		err = c.Changewd("testroot/git-ignored/fooxdir")
+		if err != nil {
+			t.Error(err)
+		}
+
+		os.RemoveAll("testroot/git-ignored/fooxdir")
+	}
+}
+
 func mustParseTime(f, s string) time.Time {
 	t, err := time.Parse(timeFormat, s)
 	if err != nil {
