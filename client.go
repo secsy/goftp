@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"sync"
 	"time"
 )
@@ -148,6 +149,12 @@ type Config struct {
 	// neither complete nor downgrade to PASV successfully by themselves, resulting in
 	// hung connections.
 	DisableEPSV bool
+
+	// Provide a custom parser for the outcome of the LIST command
+	// If this is not set, a default LIST parser is used that will handle most outcomes
+	ListParser interface {
+		ParseLIST(entry string) (os.FileInfo, error)
+	}
 
 	// For testing convenience.
 	stubResponses map[string]stubResponse
