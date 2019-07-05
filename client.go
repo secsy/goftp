@@ -409,7 +409,7 @@ func (c *Client) openConn(idx int, host string) (pconn *persistentConn, err erro
 		goto Error
 	}
 
-	if c.config.TLSConfig != nil && c.config.TLSMode == TLSImplicit {
+	if c.config.TLSConfig != nil && c.config.TLSMode == TLSExplicit {
 		err = pconn.logInTLS()
 	} else {
 		err = pconn.logIn()

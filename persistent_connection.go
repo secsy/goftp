@@ -250,6 +250,16 @@ func (pconn *persistentConn) logIn() error {
 		return ftpError{code: code, msg: msg}
 	}
 
+	err = pconn.sendCommandExpected(replyGroupPositiveCompletion, "PBSZ 0")
+	if err != nil {
+		return err
+	}
+
+	err = pconn.sendCommandExpected(replyGroupPositiveCompletion, "PROT P")
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
