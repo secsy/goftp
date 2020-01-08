@@ -16,6 +16,35 @@ import (
 	"time"
 )
 
+func TestRetrieveOffset(t *testing.T) {
+	for _, addr := range ftpdAddrs {
+		c, err := DialConfig(goftpConfig, addr)
+
+		if err != nil {
+			t.Fatal(err)
+		}
+
+
+		buf := new(bytes.Buffer)
+
+		err = c.RetrieveOffset("subdir/1234.bin", buf, 1)
+
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if !bytes.Equal([]byte{2, 3, 4}, buf.Bytes()) {
+			t.Errorf("Got %v", buf.Bytes())
+		}
+
+		err = c.RetrieveOffset("subdir/1234.bin", buf, 5)
+
+		if err == nil {
+			t.Error("BytesSoFar is greater than the source File and should throw an error")
+		}
+	}
+}
+
 func TestRetrieve(t *testing.T) {
 	for _, addr := range ftpdAddrs {
 		c, err := DialConfig(goftpConfig, addr)
