@@ -139,6 +139,9 @@ func (c *Client) ReadDir(path string) ([]os.FileInfo, error) {
 			return nil, err
 		}
 		parser = func(entry string, skipSelfParent bool) (os.FileInfo, error) {
+			if c.config.ListParser != nil {
+				return c.config.ListParser.ParseLIST(entry)
+			}
 			return parseLIST(entry, c.config.ServerLocation, skipSelfParent)
 		}
 	}
@@ -179,6 +182,9 @@ func (c *Client) Stat(path string) (os.FileInfo, error) {
 				return nil, ftpError{err: fmt.Errorf("unexpected LIST response: %v", lines)}
 			}
 
+			if c.config.ListParser != nil {
+				return c.config.ListParser.ParseLIST(lines[0])
+			}
 			return parseLIST(lines[0], c.config.ServerLocation, false)
 		}
 		return nil, err
