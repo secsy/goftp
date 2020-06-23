@@ -13,10 +13,10 @@ import (
 
 // Retrieve file "path" from server and write bytes to "dest". If the
 // server supports resuming stream transfers, Retrieve will continue
-// resuming a failed download as long as it continues making progress.
-// Retrieve will also verify the file's size after the transfer if the
+// at the specified offset.
+// RetrieveOffset will also verify the file's size after the transfer if the
 // server supports the SIZE command.
-func (c *Client) Retrieve(path string, dest io.Writer) error {
+func (c *Client) RetrieveOffset(path string, dest io.Writer, bytesSoFar int64) error {
 	// fetch file size to check against how much we transferred
 	size, err := c.size(path)
 	if err != nil {
@@ -25,7 +25,6 @@ func (c *Client) Retrieve(path string, dest io.Writer) error {
 
 	canResume := c.canResume()
 
-	var bytesSoFar int64
 	for {
 		n, err := c.transferFromOffset(path, dest, nil, bytesSoFar)
 
@@ -51,6 +50,15 @@ func (c *Client) Retrieve(path string, dest io.Writer) error {
 	}
 
 	return nil
+}
+
+// Retrieve file "path" from server and write bytes to "dest". If the
+// server supports resuming stream transfers, Retrieve will continue
+// resuming a failed download as long as it continues making progress.
+// Retrieve will also verify the file's size after the transfer if the
+// server supports the SIZE command.
+func (c *Client) Retrieve(path string, dest io.Writer) error {
+	return c.RetrieveOffset(path, dest, 0)
 }
 
 // Store bytes read from "src" into file "path" on the server. If the
