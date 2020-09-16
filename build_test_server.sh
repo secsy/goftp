@@ -7,9 +7,9 @@ cd ftpd
 
 ftpd_dir=`pwd`
 
-curl -O ftp://ftp.proftpd.org/distrib/source/proftpd-1.3.5.tar.gz
-tar -xzf proftpd-1.3.5.tar.gz
-cd proftpd-1.3.5
+curl -L -O https://github.com/proftpd/proftpd/archive/v1.3.5e.tar.gz 
+tar -xzf v1.3.5e.tar.gz 
+cd proftpd-1.3.5e
 
 # fix slow tls data connection handshake (https://github.com/proftpd/proftpd/pull/48)
 perl -pi -e 's/(\Qpr_inet_set_proto_nodelay(conn->pool, conn, 1);\E)/$1\n(void) pr_inet_set_proto_cork(conn->wfd, 0);/' contrib/mod_tls.c
