@@ -402,7 +402,10 @@ func (pconn *persistentConn) prepareDataConn() (func() (net.Conn, error), error)
 			}
 
 			if pconn.config.TLSConfig != nil {
-				dc = tls.Server(dc, pconn.config.TLSConfig)
+				// based on RFC 4217, section 7, for active connections
+				// the FTP client MUST be the TLS client and the FTP
+				// server MUST be the TLS server
+				dc = tls.Client(dc, pconn.config.TLSConfig)
 				pconn.debug("upgraded active connection to TLS")
 			}
 
