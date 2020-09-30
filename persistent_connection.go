@@ -7,6 +7,7 @@ package goftp
 import (
 	"bufio"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"net"
 	"net/textproto"
@@ -358,7 +359,39 @@ PASV:
 		port |= portOctet << (byte(1-i) * 8)
 	}
 
+	pconn.debug("check returned IP routable: %s", ip.String())
+	isRoutable, err := isRoutableIP(ip.String())
+	if err != nil {
+		pconn.debug("failed to resolve whether IP %v is routable: %s", ip.String(), err)
+	}
+	if !isRoutable {
+		pconn.debug("returned IP %v is not routable, use server address instead", ip.String())
+
+		remoteHost, _, err = net.SplitHostPort(pconn.controlConn.RemoteAddr().String())
+		if err != nil {
+			pconn.debug("failed determining remote host: %s", err)
+
+		} else {
+			return net.JoinHostPort(remoteHost, strconv.Itoa(port)), nil
+		}
+	}
+
 	return net.JoinHostPort(ip.String(), strconv.Itoa(port)), nil
+}
+
+func isRoutableIP(ip string) (bool, error) {
+	var err error
+	private := false
+	IP := net.ParseIP(ip)
+	if IP == nil {
+		err = errors.New("Invalid IP")
+	} else {
+		_, private24BitBlock, _ := net.ParseCIDR("10.0.0.0/8")
+		_, private20BitBlock, _ := net.ParseCIDR("172.16.0.0/12")
+		_, private16BitBlock, _ := net.ParseCIDR("192.168.0.0/16")
+		private = private24BitBlock.Contains(IP) || private20BitBlock.Contains(IP) || private16BitBlock.Contains(IP)
+	}
+	return !private, err
 }
 
 type dataConn struct {
@@ -432,6 +465,11 @@ func (pconn *persistentConn) prepareDataConn() (func() (net.Conn, error), error)
 		if pconn.config.TLSConfig != nil {
 			pconn.debug("upgrading data connection to TLS")
 			dc = tls.Client(dc, pconn.config.TLSConfig)
+		}
+		if dc == nil {
+			pconn.debug("data connection lost after upgrade to TLS")
+		} else {
+			pconn.debug("connection available")
 		}
 
 		return func() (net.Conn, error) {
