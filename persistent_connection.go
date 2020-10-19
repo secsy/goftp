@@ -418,8 +418,16 @@ func (pconn *persistentConn) prepareDataConn() (func() (net.Conn, error), error)
 			return nil, err
 		}
 
-		pconn.debug("opening data connection to %s", host)
-		dc, netErr := net.DialTimeout("tcp", host, pconn.config.Timeout)
+		var dc net.Conn
+		var netErr error
+
+		if pconn.config.DialFunc != nil {
+			pconn.debug("opening data connection to %s via DialFunc", host)
+			dc, netErr = pconn.config.DialFunc("tcp", host)
+		} else {
+			pconn.debug("opening data connection to %s", host)
+			dc, netErr = net.DialTimeout("tcp", host, pconn.config.Timeout)
+		}
 
 		if netErr != nil {
 			var isTemporary bool
