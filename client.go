@@ -384,10 +384,6 @@ func (c *Client) openConn(idx int, host string) (pconn *persistentConn, err erro
 	var conn net.Conn
 	pconn.debug("opening control connection to %s", host)
 	conn, err = c.config.DialContext(ctx, "tcp", host)
-	if c.config.TLSConfig != nil && c.config.TLSMode == TLSImplicit {
-		pconn.debug("configuring implicit TLS control connection to %s", host)
-		conn = tls.Client(conn, pconn.config.TLSConfig)
-	}
 
 	var (
 		code int
@@ -404,6 +400,11 @@ func (c *Client) openConn(idx int, host string) (pconn *persistentConn, err erro
 			temporary: isTemporary,
 		}
 		goto Error
+	}
+
+	if c.config.TLSConfig != nil && c.config.TLSMode == TLSImplicit {
+		pconn.debug("configuring implicit TLS control connection to %s", host)
+		conn = tls.Client(conn, pconn.config.TLSConfig)
 	}
 
 	pconn.setControlConn(conn)
