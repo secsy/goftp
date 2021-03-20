@@ -12,11 +12,11 @@ jobs:
     strategy:
       matrix:
         go_version:
-          - ^1.12
-          - ^1.13
-          - ^1.14
-          - ^1.15
-          - ^1.16
+          - 1.12
+          - 1.13
+          - 1.14
+          - 1.15
+          - 1.16
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
