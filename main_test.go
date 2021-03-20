@@ -86,6 +86,8 @@ func startPureFTPD(addrs []string, binary string) (func(), error) {
 
 		cmd.Env = []string{fmt.Sprintf("FTP_ANON_DIR=%s/testroot", cwd)}
 
+		cmd.Stderr = os.Stderr
+
 		err = cmd.Start()
 		if err != nil {
 			return nil, fmt.Errorf("error starting pure-ftpd on %s: %s", addr, err)
@@ -129,8 +131,7 @@ func startProFTPD() (func(), error) {
 		// "--debug", "10",
 	)
 
-	// cmd.Stdout = os.Stdout
-	// cmd.Stderr = os.Stderr
+	cmd.Stderr = os.Stderr
 
 	err = cmd.Start()
 	if err != nil {
