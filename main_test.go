@@ -27,12 +27,17 @@ var ftpdAddrs []string
 var (
 	// used for implicit tls test
 	implicitTLSAddrs = []string{"127.0.0.1:2122", "[::1]:2122"}
-	implicitRTAddrs  = []string{"127.0.0.1:2123", "[::1]:2123"}
 	pureAddrs        = []string{"127.0.0.1:2121", "[::1]:2121"}
 	proAddrs         = []string{"127.0.0.1:2124"}
 )
 
 func TestMain(m *testing.M) {
+	implicitCloser, err := startPureFTPD(implicitTLSAddrs, "ftpd/pure-ftpd-implicittls")
+
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	pureCloser, err := startPureFTPD(pureAddrs, "ftpd/pure-ftpd")
 	ftpdAddrs = append(ftpdAddrs, pureAddrs...)
 
@@ -50,6 +55,7 @@ func TestMain(m *testing.M) {
 
 	var ret int
 	func() {
+		defer implicitCloser()
 		defer pureCloser()
 		defer proCloser()
 		ret = m.Run()

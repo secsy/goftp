@@ -84,13 +84,6 @@ func TestExplicitTLS(t *testing.T) {
 }
 
 func TestImplicitTLS(t *testing.T) {
-	closer, err := startPureFTPD(implicitTLSAddrs, "ftpd/pure-ftpd-implicittls")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	defer closer()
-
 	for _, addr := range implicitTLSAddrs {
 		config := Config{
 			TLSConfig: &tls.Config{
