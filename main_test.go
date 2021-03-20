@@ -26,8 +26,8 @@ var ftpdAddrs []string
 
 var (
 	// used for implicit tls test
-	implicitTLSAddrs = []string{"127.0.0.1:2123", "[::1]:2124"}
-	pureAddrs        = []string{"127.0.0.1:2121", "[::1]:2122"}
+	implicitTLSAddrs = []string{"127.0.0.1:2123"}
+	pureAddrs        = []string{"127.0.0.1:2121"}
 	proAddrs         = []string{"127.0.0.1:2124"} // Must match value in proftpd.conf
 )
 
