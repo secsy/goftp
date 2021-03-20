@@ -212,7 +212,7 @@ func (c *Client) controlStringList(f string, args ...interface{}) ([]string, err
 
 	cmd := fmt.Sprintf(f, args...)
 
-	code, msg, err := pconn.sendCommand(cmd)
+	code, msg, _ := pconn.sendCommand(cmd)
 
 	if !positiveCompletionReply(code) {
 		pconn.debug("unexpected response to %s: %d-%s", cmd, code, msg)

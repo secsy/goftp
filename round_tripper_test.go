@@ -33,7 +33,7 @@ func TestRoundTripperTimeoutConnect(t *testing.T) {
 	}
 
 	t0 := time.Now()
-	res, err := config.RoundTrip(req)
+	res, _ := config.RoundTrip(req)
 	// Config.RoundTrip calls Client.Retrieve in a goroutine
 	// so large file reads are unbuffered.
 	_, err = ioutil.ReadAll(res.Body)
