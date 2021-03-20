@@ -1,5 +1,10 @@
 #!/bin/bash -ex
 
+if [ "$(uname)" == "Darwin" ]; then
+  cflags=-I/usr/local/opt/openssl/include
+  ldflags=-L/usr/local/opt/openssl/lib
+fi
+
 goftp_dir=`pwd`
 
 mkdir -p ftpd
@@ -7,20 +12,11 @@ cd ftpd
 
 ftpd_dir=`pwd`
 
-curl -O ftp://ftp.proftpd.org/distrib/source/proftpd-1.3.5.tar.gz
-tar -xzf proftpd-1.3.5.tar.gz
-cd proftpd-1.3.5
+proftp_version='1.3.7a'
 
-# fix slow tls data connection handshake (https://github.com/proftpd/proftpd/pull/48)
-perl -pi -e 's/(\Qpr_inet_set_proto_nodelay(conn->pool, conn, 1);\E)/$1\n(void) pr_inet_set_proto_cork(conn->wfd, 0);/' contrib/mod_tls.c
-
-# fix a segfault on mac
-perl -pi -e 's/\Qsstrncpy(cwd, dir, sizeof(cwd));\E/char dircpy[sizeof(cwd)];\nsstrncpy(dircpy, dir, sizeof(dircpy));\nsstrncpy(cwd, dircpy, sizeof(cwd));/' src/fsio.c
-
-if [ "$(uname)" == "Darwin" ]; then
-  cflags=-I/usr/local/opt/openssl/include
-  ldflags=-L/usr/local/opt/openssl/lib
-fi
+test -f proftpd-${proftp_version}.tar.gz || curl -O ftp://ftp.proftpd.org/distrib/source/proftpd-${proftp_version}.tar.gz
+tar -xzf proftpd-${proftp_version}.tar.gz
+cd proftpd-${proftp_version}
 
 CFLAGS=$cflags LDFLAGS=$ldflags ./configure --with-modules=mod_tls --disable-ident
 
@@ -88,9 +84,11 @@ VpOorURz8ETlfAA=
 -----END CERTIFICATE-----
 CERT
 
-curl -O https://download.pureftpd.org/pub/pure-ftpd/releases/obsolete/pure-ftpd-1.0.36.tar.gz
-tar -xzf pure-ftpd-1.0.36.tar.gz
-cd pure-ftpd-1.0.36
+pure_ftpd_version='1.0.49'
+
+test -f pure-ftpd-${pure_ftpd_version}.tar.gz || curl -O https://download.pureftpd.org/pub/pure-ftpd/releases/pure-ftpd-${pure_ftpd_version}.tar.gz
+tar -xzf pure-ftpd-${pure_ftpd_version}.tar.gz
+cd pure-ftpd-${pure_ftpd_version}
 
 # build normal binary with explicit tls support
 CFLAGS=$cflags LDFLAGS=$ldflags ./configure --with-nonroot --with-puredb --with-tls --with-certfile=$ftpd_dir/pure-ftpd.pem
@@ -121,4 +119,4 @@ fi
 chmod 600 users.txt
 
 # generate puredb user db file
-pure-ftpd-1.0.36/src/pure-pw mkdb users.pdb -f users.txt
+pure-ftpd-${pure_ftpd_version}/src/pure-pw mkdb users.pdb -f users.txt
