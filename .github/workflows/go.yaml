@@ -25,6 +25,9 @@ jobs:
       - name: Build FTP test servers
         run: ./build_test_server.sh
 
+      - name: Inspect ftpd dir
+        run: ls -al ftpd
+
       - name: Test Go code
         run: go test -v ./...
 
