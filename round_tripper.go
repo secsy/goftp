@@ -7,20 +7,14 @@ import (
 	"strings"
 )
 
-// Transport implements the http.RoundTripper interface.
-// Typical usage would be to register a Transport to handle
+// RoundTrip implements the http.RoundTripper interface to allow an http.Client
+// to handle ftp:// or ftps:// URLs. If req.URL.User is nil, the user and password
+// from config will be used instead.
+// Typical usage would be to register a Config to handle
 // ftp:// and/or ftps:// URLs with http.Transport.RegisterProtocol.
 // The User and Password fields in Config will be used when connecting
 // to the remote FTP server unless the http.Request’s URL.User is non-nil.
-type Transport struct {
-	Config
-}
-
-// RoundTrip implements the http.RoundTripper interface to allow an http.Client
-// to handle ftp:// or ftps:// URLs. If req.URL.User is nil, the user and password
-// from t.Config will be used instead.
-func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
-	config := t.Config
+func (config Config) RoundTrip(req *http.Request) (*http.Response, error) {
 	switch req.URL.Scheme {
 	default:
 		return nil, http.ErrSkipAltProtocol

@@ -10,23 +10,22 @@ import (
 	"time"
 )
 
-func TestTransportSkipAltProtocol(t *testing.T) {
-	transport := Transport{}
+func TestRoundTripperSkipAltProtocol(t *testing.T) {
+	config := Config{}
 
 	req, err := http.NewRequest(http.MethodGet, "foo://localhost/foo.txt", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	_, err = transport.RoundTrip(req)
+	_, err = config.RoundTrip(req)
 	if err != http.ErrSkipAltProtocol {
 		t.Errorf("Expected err = %v, got %v", http.ErrSkipAltProtocol, err)
 	}
 }
 
-func TestTransportTimeoutConnect(t *testing.T) {
+func TestRoundTripperTimeoutConnect(t *testing.T) {
 	config := Config{Timeout: 100 * time.Millisecond}
-	transport := Transport{Config: config}
 
 	req, err := http.NewRequest(http.MethodGet, "ftp://168.254.111.222:2121/subdir/1234.bin", nil)
 	if err != nil {
@@ -34,8 +33,8 @@ func TestTransportTimeoutConnect(t *testing.T) {
 	}
 
 	t0 := time.Now()
-	res, err := transport.RoundTrip(req)
-	// Transport.RoundTrip calls Client.Retrieve in a goroutine
+	res, err := config.RoundTrip(req)
+	// Config.RoundTrip calls Client.Retrieve in a goroutine
 	// so large file reads are unbuffered.
 	_, err = ioutil.ReadAll(res.Body)
 	res.Body.Close()
@@ -53,7 +52,7 @@ func TestTransportTimeoutConnect(t *testing.T) {
 	}
 }
 
-func TestTransportExplicitTLS(t *testing.T) {
+func TestRoundTripperExplicitTLS(t *testing.T) {
 	for _, addr := range ftpdAddrs {
 		config := Config{
 			TLSConfig: &tls.Config{
@@ -61,7 +60,6 @@ func TestTransportExplicitTLS(t *testing.T) {
 			},
 			TLSMode: TLSExplicit,
 		}
-		transport := Transport{Config: config}
 
 		req, err := http.NewRequest(http.MethodGet, "ftp://"+addr+"/subdir/1234.bin", nil)
 		if err != nil {
@@ -70,7 +68,7 @@ func TestTransportExplicitTLS(t *testing.T) {
 
 		req.URL.User = url.UserPassword("goftp", "rocks")
 
-		res, err := transport.RoundTrip(req)
+		res, err := config.RoundTrip(req)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -87,7 +85,7 @@ func TestTransportExplicitTLS(t *testing.T) {
 	}
 }
 
-func TestTransportImplicitTLS(t *testing.T) {
+func TestRoundTripperImplicitTLS(t *testing.T) {
 	closer, err := startPureFTPD(implicitTLSAddrs, "ftpd/pure-ftpd-implicittls")
 	if err != nil {
 		t.Fatal(err)
@@ -102,7 +100,6 @@ func TestTransportImplicitTLS(t *testing.T) {
 			},
 			TLSMode: TLSImplicit,
 		}
-		transport := Transport{Config: config}
 
 		req, err := http.NewRequest(http.MethodGet, "ftp://"+addr+"/subdir/1234.bin", nil)
 		if err != nil {
@@ -111,7 +108,7 @@ func TestTransportImplicitTLS(t *testing.T) {
 
 		req.URL.User = url.UserPassword("goftp", "rocks")
 
-		res, err := transport.RoundTrip(req)
+		res, err := config.RoundTrip(req)
 		if err != nil {
 			t.Fatal(err)
 		}
