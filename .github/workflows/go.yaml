@@ -1,0 +1,32 @@
+name: Go
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v2
+        with:
+          submodules: recursive
+
+      - name: Set up Go
+        uses: actions/setup-go@v2
+        with:
+          go-version: ^1
+
+      - name: Build FTP test servers
+        run: ./build_test_server.sh
+
+      - name: Test Go code
+        run: go test -v ./...
+
+      - name: Test with race detector
+        run: go test -v -race ./...
