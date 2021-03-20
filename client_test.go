@@ -21,7 +21,7 @@ func TestTimeoutConnect(t *testing.T) {
 
 	t0 := time.Now()
 	_, err = c.ReadDir("")
-	delta := time.Now().Sub(t0)
+	delta := time.Since(t0)
 
 	if err == nil || !err.(Error).Temporary() {
 		t.Error("Expected a timeout error")

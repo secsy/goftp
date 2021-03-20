@@ -250,7 +250,7 @@ func (c *Client) debug(f string, args ...interface{}) {
 	}
 
 	fmt.Fprintf(c.config.Logger, "goftp: %.3f %s\n",
-		time.Now().Sub(c.t0).Seconds(),
+		time.Since(c.t0).Seconds(),
 		fmt.Sprintf(f, args...),
 	)
 }

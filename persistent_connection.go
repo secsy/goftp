@@ -188,7 +188,7 @@ func (pconn *persistentConn) debug(f string, args ...interface{}) {
 	}
 
 	fmt.Fprintf(pconn.config.Logger, "goftp: %.3f #%d %s\n",
-		time.Now().Sub(pconn.t0).Seconds(),
+		time.Since(pconn.t0).Seconds(),
 		pconn.idx,
 		fmt.Sprintf(f, args...),
 	)

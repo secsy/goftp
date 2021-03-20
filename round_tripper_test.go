@@ -38,7 +38,7 @@ func TestRoundTripperTimeoutConnect(t *testing.T) {
 	// so large file reads are unbuffered.
 	_, err = ioutil.ReadAll(res.Body)
 	res.Body.Close()
-	delta := time.Now().Sub(t0)
+	delta := time.Since(t0)
 	if err == nil || !err.(Error).Temporary() {
 		t.Error("Expected a timeout error")
 	}
