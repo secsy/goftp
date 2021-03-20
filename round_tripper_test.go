@@ -86,14 +86,14 @@ func TestRoundTripperExplicitTLS(t *testing.T) {
 }
 
 func TestRoundTripperImplicitTLS(t *testing.T) {
-	closer, err := startPureFTPD(implicitTLSAddrs, "ftpd/pure-ftpd-implicittls")
+	closer, err := startPureFTPD(implicitRTAddrs, "ftpd/pure-ftpd-implicittls")
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	defer closer()
 
-	for _, addr := range implicitTLSAddrs {
+	for _, addr := range implicitRTAddrs {
 		config := Config{
 			TLSConfig: &tls.Config{
 				InsecureSkipVerify: true,
