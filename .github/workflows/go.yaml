@@ -1,0 +1,40 @@
+name: Go
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+
+jobs:
+  test:
+    name: Test
+    strategy:
+      matrix:
+        go_version:
+          - 1.12
+          - 1.13
+          - 1.14
+          - 1.15
+          - 1.16
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v2
+        with:
+          submodules: recursive
+
+      - name: Set up Go
+        uses: actions/setup-go@v2
+        with:
+          go-version: ${{ matrix.go_version }}
+
+      - name: Build FTP test servers
+        run: ./build_test_server.sh
+
+      - name: Test Go code
+        run: go test -v ./...
+
+      - name: Test with race detector
+        run: go test -v -race ./...

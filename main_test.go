@@ -32,6 +32,12 @@ var (
 )
 
 func TestMain(m *testing.M) {
+	implicitCloser, err := startPureFTPD(implicitTLSAddrs, "ftpd/pure-ftpd-implicittls")
+
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	pureCloser, err := startPureFTPD(pureAddrs, "ftpd/pure-ftpd")
 	ftpdAddrs = append(ftpdAddrs, pureAddrs...)
 
@@ -49,6 +55,7 @@ func TestMain(m *testing.M) {
 
 	var ret int
 	func() {
+		defer implicitCloser()
 		defer pureCloser()
 		defer proCloser()
 		ret = m.Run()
@@ -85,6 +92,8 @@ func startPureFTPD(addrs []string, binary string) (func(), error) {
 		)
 
 		cmd.Env = []string{fmt.Sprintf("FTP_ANON_DIR=%s/testroot", cwd)}
+
+		// cmd.Stderr = os.Stderr
 
 		err = cmd.Start()
 		if err != nil {
@@ -129,7 +138,6 @@ func startProFTPD() (func(), error) {
 		// "--debug", "10",
 	)
 
-	// cmd.Stdout = os.Stdout
 	// cmd.Stderr = os.Stderr
 
 	err = cmd.Start()

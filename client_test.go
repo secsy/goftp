@@ -6,7 +6,9 @@ package goftp
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
+	"net"
 	"sync"
 	"testing"
 	"time"
@@ -19,7 +21,7 @@ func TestTimeoutConnect(t *testing.T) {
 
 	t0 := time.Now()
 	_, err = c.ReadDir("")
-	delta := time.Now().Sub(t0)
+	delta := time.Since(t0)
 
 	if err == nil || !err.(Error).Temporary() {
 		t.Error("Expected a timeout error")
@@ -40,9 +42,16 @@ func TestTimeoutConnect(t *testing.T) {
 
 func TestExplicitTLS(t *testing.T) {
 	for _, addr := range ftpdAddrs {
+		var gotAddr string
 		config := Config{
 			User:     "goftp",
 			Password: "rocks",
+			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+				if gotAddr == "" {
+					gotAddr = addr
+				}
+				return (&net.Dialer{}).DialContext(ctx, network, addr)
+			},
 			TLSConfig: &tls.Config{
 				InsecureSkipVerify: true,
 			},
@@ -64,6 +73,10 @@ func TestExplicitTLS(t *testing.T) {
 			t.Errorf("Got %v", buf.Bytes())
 		}
 
+		if gotAddr != addr {
+			t.Errorf("Expected dial to %s, got %s", addr, gotAddr)
+		}
+
 		if c.numOpenConns() != len(c.freeConnCh) {
 			t.Error("Leaked a connection")
 		}
@@ -71,13 +84,6 @@ func TestExplicitTLS(t *testing.T) {
 }
 
 func TestImplicitTLS(t *testing.T) {
-	closer, err := startPureFTPD(implicitTLSAddrs, "ftpd/pure-ftpd-implicittls")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	defer closer()
-
 	for _, addr := range implicitTLSAddrs {
 		config := Config{
 			TLSConfig: &tls.Config{

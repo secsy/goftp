@@ -5,6 +5,7 @@
 package goftp
 
 import (
+	"context"
 	"crypto/tls"
 	"errors"
 	"fmt"
@@ -109,6 +110,10 @@ type Config struct {
 	// of data transfers. Defaults to 5 seconds.
 	Timeout time.Duration
 
+	// DialContext specifies the dial function for creating unencrypted TCP connections.
+	// If DialContext is nil, then the client dials using package net.
+	DialContext func(ctx context.Context, network, addr string) (net.Conn, error)
+
 	// TLS Config used for FTPS. If provided, it will be an error if the server
 	// does not support TLS. Both the control and data connection will use TLS.
 	TLSConfig *tls.Config
@@ -173,13 +178,18 @@ type Client struct {
 // Construct and return a new client Conn, setting default config
 // values as necessary.
 func newClient(config Config, hosts []string) *Client {
-
 	if config.ConnectionsPerHost <= 0 {
 		config.ConnectionsPerHost = 5
 	}
 
 	if config.Timeout <= 0 {
 		config.Timeout = 5 * time.Second
+	}
+
+	if config.DialContext == nil {
+		config.DialContext = (&net.Dialer{
+			Timeout: config.Timeout,
+		}).DialContext
 	}
 
 	if config.User == "" {
@@ -240,7 +250,7 @@ func (c *Client) debug(f string, args ...interface{}) {
 	}
 
 	fmt.Fprintf(c.config.Logger, "goftp: %.3f %s\n",
-		time.Now().Sub(c.t0).Seconds(),
+		time.Since(c.t0).Seconds(),
 		fmt.Sprintf(f, args...),
 	)
 }
@@ -367,18 +377,13 @@ func (c *Client) openConn(idx int, host string) (pconn *persistentConn, err erro
 		epsvNotSupported: c.config.DisableEPSV,
 	}
 
-	var conn net.Conn
+	// FIXME: this method should accept a parent Context
+	ctx, cancel := context.WithTimeout(context.Background(), c.config.Timeout)
+	defer cancel()
 
-	if c.config.TLSConfig != nil && c.config.TLSMode == TLSImplicit {
-		pconn.debug("opening TLS control connection to %s", host)
-		dialer := &net.Dialer{
-			Timeout: c.config.Timeout,
-		}
-		conn, err = tls.DialWithDialer(dialer, "tcp", host, pconn.config.TLSConfig)
-	} else {
-		pconn.debug("opening control connection to %s", host)
-		conn, err = net.DialTimeout("tcp", host, c.config.Timeout)
-	}
+	var conn net.Conn
+	pconn.debug("opening control connection to %s", host)
+	conn, err = c.config.DialContext(ctx, "tcp", host)
 
 	var (
 		code int
@@ -395,6 +400,11 @@ func (c *Client) openConn(idx int, host string) (pconn *persistentConn, err erro
 			temporary: isTemporary,
 		}
 		goto Error
+	}
+
+	if c.config.TLSConfig != nil && c.config.TLSMode == TLSImplicit {
+		pconn.debug("configuring implicit TLS control connection to %s", host)
+		conn = tls.Client(conn, pconn.config.TLSConfig)
 	}
 
 	pconn.setControlConn(conn)

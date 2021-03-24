@@ -6,6 +6,7 @@ package goftp
 
 import (
 	"bufio"
+	"context"
 	"crypto/tls"
 	"fmt"
 	"net"
@@ -187,7 +188,7 @@ func (pconn *persistentConn) debug(f string, args ...interface{}) {
 	}
 
 	fmt.Fprintf(pconn.config.Logger, "goftp: %.3f #%d %s\n",
-		time.Now().Sub(pconn.t0).Seconds(),
+		time.Since(pconn.t0).Seconds(),
 		pconn.idx,
 		fmt.Sprintf(f, args...),
 	)
@@ -310,7 +311,7 @@ func (pconn *persistentConn) requestPassive() (string, error) {
 		goto PASV
 	}
 
-	remoteHost, _, err = net.SplitHostPort(pconn.controlConn.RemoteAddr().String())
+	remoteHost, _, err = net.SplitHostPort(pconn.host)
 	if err != nil {
 		pconn.debug("failed determining remote host: %s", err)
 		goto PASV
@@ -418,8 +419,12 @@ func (pconn *persistentConn) prepareDataConn() (func() (net.Conn, error), error)
 			return nil, err
 		}
 
+		// FIXME: this method should accept a parent Context
+		ctx, cancel := context.WithTimeout(context.Background(), pconn.config.Timeout)
+		defer cancel()
+
 		pconn.debug("opening data connection to %s", host)
-		dc, netErr := net.DialTimeout("tcp", host, pconn.config.Timeout)
+		dc, netErr := pconn.config.DialContext(ctx, "tcp", host)
 
 		if netErr != nil {
 			var isTemporary bool

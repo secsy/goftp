@@ -7,7 +7,6 @@ package goftp
 import (
 	"fmt"
 	"io"
-	"os"
 	"strconv"
 )
 
@@ -90,7 +89,7 @@ func (c *Client) Store(path string, src io.Reader) error {
 				}
 			}
 
-			_, seekErr := seeker.Seek(size, os.SEEK_SET)
+			_, seekErr := seeker.Seek(size, io.SeekStart)
 			if seekErr != nil {
 				c.debug("failed seeking to %d while resuming upload to %s: %s",
 					size,
