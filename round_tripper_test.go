@@ -89,6 +89,20 @@ func TestRoundTripperExplicitTLS(t *testing.T) {
 		if !bytes.Equal([]byte{1, 2, 3, 4}, b) {
 			t.Errorf("Got %v", b)
 		}
+
+		// Test nonexistent file
+		req, err = http.NewRequest(http.MethodGet, "ftp://"+addr+"/nonexistent.file", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.URL.User = url.UserPassword("goftp", "rocks")
+		res, err = config.RoundTrip(req)
+		if err == nil {
+			t.Errorf("expected non-nil err")
+		}
+		if want, got := replyFileError, res.StatusCode; want != got {
+			t.Errorf("res.StatusCode: want: %v got: %v", want, got)
+		}
 	}
 }
 
@@ -128,6 +142,20 @@ func TestRoundTripperImplicitTLS(t *testing.T) {
 
 		if !bytes.Equal([]byte{1, 2, 3, 4}, b) {
 			t.Errorf("Got %v", b)
+		}
+
+		// Test nonexistent file
+		req, err = http.NewRequest(http.MethodGet, "ftp://"+addr+"/nonexistent.file", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.URL.User = url.UserPassword("goftp", "rocks")
+		res, err = config.RoundTrip(req)
+		if err == nil {
+			t.Errorf("expected non-nil err")
+		}
+		if want, got := replyFileError, res.StatusCode; want != got {
+			t.Errorf("res.StatusCode: want: %v got: %v", want, got)
 		}
 	}
 }

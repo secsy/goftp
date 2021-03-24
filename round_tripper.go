@@ -1,6 +1,7 @@
 package goftp
 
 import (
+	"bufio"
 	"crypto/tls"
 	"io"
 	"net/http"
@@ -44,18 +45,35 @@ func (config Config) RoundTrip(req *http.Request) (*http.Response, error) {
 	default:
 		return nil, http.ErrNotSupported
 	case http.MethodGet:
-		// Simulate HTTP response semantics
-		res.StatusCode = 200
-		res.Status = http.StatusText(res.StatusCode)
 		// Pipe Client.Retrieve to res.Body so enable unbuffered reads
 		// of large files.
 		// Errors returned by Client.Retrieve (like the size check)
 		// will be returned by res.Body.Read().
 		r, w := io.Pipe()
-		res.Body = r
+		brc := &bufferedReadCloser{bufio.NewReader(r), r}
+		res.Body = brc
 		go func() {
 			w.CloseWithError(client.Retrieve(path, w))
 		}()
+		_, err = brc.Peek(1) // Get error immediately on bad read
+
+		// Simulate HTTP response semantics
+		if err, ok := err.(ftpError); ok {
+			res.StatusCode = err.Code()
+			res.Status = err.Message()
+		} else {
+			res.StatusCode = 200
+			res.Status = http.StatusText(res.StatusCode)
+		}
 	}
 	return res, err
+}
+
+type bufferedReadCloser struct {
+	*bufio.Reader
+	rc io.ReadCloser
+}
+
+func (rc *bufferedReadCloser) Close() error {
+	return rc.rc.Close()
 }
