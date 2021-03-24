@@ -44,6 +44,9 @@ func (config Config) RoundTrip(req *http.Request) (*http.Response, error) {
 	default:
 		return nil, http.ErrNotSupported
 	case http.MethodGet:
+		// Simulate HTTP response semantics
+		res.StatusCode = 200
+		res.Status = http.StatusText(res.StatusCode)
 		// Pipe Client.Retrieve to res.Body so enable unbuffered reads
 		// of large files.
 		// Errors returned by Client.Retrieve (like the size check)
