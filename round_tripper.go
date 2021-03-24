@@ -56,12 +56,11 @@ func (config Config) RoundTrip(req *http.Request) (*http.Response, error) {
 			w.CloseWithError(client.Retrieve(path, w))
 		}()
 		_, err = brc.Peek(1) // Get error immediately on bad read
-
-		// Simulate HTTP response semantics
-		if err, ok := err.(ftpError); ok {
-			res.StatusCode = err.Code()
-			res.Status = err.Message()
+		if err != nil {
+			res.Body.Close()
+			res = nil
 		} else {
+			// Simulate HTTP response semantics
 			res.StatusCode = 200
 			res.Status = http.StatusText(res.StatusCode)
 		}

@@ -33,14 +33,10 @@ func TestRoundTripperTimeoutConnect(t *testing.T) {
 	}
 
 	t0 := time.Now()
-	res, _ := config.RoundTrip(req)
-	// Config.RoundTrip calls Client.Retrieve in a goroutine
-	// so large file reads are unbuffered.
-	_, err = ioutil.ReadAll(res.Body)
-	res.Body.Close()
+	_, err = config.RoundTrip(req)
 	delta := time.Since(t0)
 	if err == nil || !err.(Error).Temporary() {
-		t.Error("Expected a timeout error")
+		t.Errorf("Expected a timeout error: %v", err)
 	}
 
 	offBy := delta - config.Timeout
@@ -97,11 +93,11 @@ func TestRoundTripperExplicitTLS(t *testing.T) {
 		}
 		req.URL.User = url.UserPassword("goftp", "rocks")
 		res, err = config.RoundTrip(req)
-		if err == nil {
-			t.Errorf("expected non-nil err")
+		if res != nil {
+			t.Errorf("expected nil http.Response: %v", res)
 		}
-		if want, got := replyFileError, res.StatusCode; want != got {
-			t.Errorf("res.StatusCode: want: %v got: %v", want, got)
+		if err == nil {
+			t.Errorf("expected non-nil error")
 		}
 	}
 }
@@ -151,11 +147,11 @@ func TestRoundTripperImplicitTLS(t *testing.T) {
 		}
 		req.URL.User = url.UserPassword("goftp", "rocks")
 		res, err = config.RoundTrip(req)
+		if res != nil {
+			t.Errorf("expected nil http.Response: %v", res)
+		}
 		if err == nil {
 			t.Errorf("expected non-nil err")
-		}
-		if want, got := replyFileError, res.StatusCode; want != got {
-			t.Errorf("res.StatusCode: want: %v got: %v", want, got)
 		}
 	}
 }
