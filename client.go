@@ -149,6 +149,11 @@ type Config struct {
 	// hung connections.
 	DisableEPSV bool
 
+	// Ignores the returned remote host IP for PASV connections. Some FTP Servers are
+	// behind NAT, and return their internal IPs. This ignores the IP portion of the
+	// PASV response, using the control connection's IP instead.
+	IgnoreHost bool
+
 	// For testing convenience.
 	stubResponses map[string]stubResponse
 }

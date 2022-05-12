@@ -418,6 +418,20 @@ func (pconn *persistentConn) prepareDataConn() (func() (net.Conn, error), error)
 			return nil, err
 		}
 
+		// Some FTP servers are behind NAT themselves, and lie about their IP address.
+		if pconn.config.IgnoreHost {
+			pconn.debug("Ignoring PASV returned host %s", host)
+			_, remotePort, err := net.SplitHostPort(host)
+			if err != nil {
+				return nil, err
+			}
+			remoteHost, _, err := net.SplitHostPort(pconn.host)
+			if err != nil {
+				return nil, err
+			}
+			host = net.JoinHostPort(remoteHost, remotePort)
+		}
+
 		pconn.debug("opening data connection to %s", host)
 		dc, netErr := net.DialTimeout("tcp", host, pconn.config.Timeout)
 
