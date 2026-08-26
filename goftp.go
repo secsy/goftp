@@ -32,7 +32,20 @@ func DialConfig(config Config, hosts ...string) (*Client, error) {
 		return nil, err
 	}
 
-	return newClient(config, expandedHosts), nil
+	client := newClient(config, expandedHosts)
+
+	if config.EagerConnect {
+		// Open one connection and give it straight back, so the client
+		// starts with a warm pool rather than a spent one.
+		pconn, err := client.getIdleConn()
+		if err != nil {
+			client.Close()
+			return nil, err
+		}
+		client.returnConn(pconn)
+	}
+
+	return client, nil
 }
 
 var hasPort = regexp.MustCompile(`^[^:]+:\d+$|\]:\d+$`)

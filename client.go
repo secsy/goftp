@@ -149,6 +149,23 @@ type Config struct {
 	// hung connections.
 	DisableEPSV bool
 
+	// EagerConnect makes DialConfig open a connection and log in before
+	// it returns, so a host that cannot be reached or credentials that
+	// are wrong are reported by DialConfig itself.
+	//
+	// Without it, DialConfig only builds a client: connections open on
+	// first use, so a refused port or a bad password surfaces from
+	// whatever operation happens to run first — or from nothing at all,
+	// if the caller checked the error DialConfig returned and went on.
+	// That is not what a function called Dial does anywhere else in Go,
+	// and it is the behaviour this exists to opt out of.
+	//
+	// The connection it opens is returned to the pool rather than
+	// discarded, so the check costs a round trip and not a connection.
+	//
+	// Defaults to false, leaving the previous behaviour untouched.
+	EagerConnect bool
+
 	// For testing convenience.
 	stubResponses map[string]stubResponse
 }
