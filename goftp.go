@@ -35,6 +35,17 @@ func DialConfig(config Config, hosts ...string) (*Client, error) {
 	return newClient(config, expandedHosts), nil
 }
 
+// dial opens a connection with the caller's DialFunc if one was given,
+// and with a plain timed dial otherwise. Every connection this package
+// makes goes through here, so a DialFunc sees the data connections as
+// well as the control ones - which is the point of supplying it.
+func (c Config) dial(network, address string) (net.Conn, error) {
+	if c.DialFunc != nil {
+		return c.DialFunc(network, address)
+	}
+	return net.DialTimeout(network, address, c.Timeout)
+}
+
 var hasPort = regexp.MustCompile(`^[^:]+:\d+$|\]:\d+$`)
 
 func lookupHosts(hosts []string, ipv6Lookup bool) ([]string, error) {

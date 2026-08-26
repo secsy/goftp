@@ -278,6 +278,7 @@ func TestReadDir(t *testing.T) {
 }
 
 func TestReadDirNoMLSD(t *testing.T) {
+	requireServers(t)
 	// pureFTPD seems to have some issues with timestamps in LIST output
 	for _, addr := range proAddrs {
 		config := goftpConfig
@@ -394,6 +395,7 @@ func TestStat(t *testing.T) {
 }
 
 func TestStatNoMLST(t *testing.T) {
+	requireServers(t)
 	// pureFTPD seems to have some issues with timestamps in LIST output
 	for _, addr := range proAddrs {
 		config := goftpConfig

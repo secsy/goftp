@@ -71,6 +71,7 @@ func TestExplicitTLS(t *testing.T) {
 }
 
 func TestImplicitTLS(t *testing.T) {
+	requireServers(t)
 	closer, err := startPureFTPD(implicitTLSAddrs, "ftpd/pure-ftpd-implicittls")
 	if err != nil {
 		t.Fatal(err)
@@ -108,6 +109,7 @@ func TestImplicitTLS(t *testing.T) {
 }
 
 func TestPooling(t *testing.T) {
+	requireServers(t)
 	config := Config{
 		ConnectionsPerHost: 2,
 		User:               "goftp",

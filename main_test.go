@@ -31,7 +31,29 @@ var (
 	proAddrs         = []string{"127.0.0.1:2124"}
 )
 
+// Set by GOFTP_SKIP_SERVERS. Tests that need a live server call
+// requireServers, which skips them when it is set.
+var skipServers bool
+
+// requireServers skips the calling test when no FTP test server was
+// started. Without it such a test fails on a connection refused, which
+// looks like a bug in the package rather than a missing prerequisite.
+func requireServers(t *testing.T) {
+	t.Helper()
+	if skipServers {
+		t.Skip("GOFTP_SKIP_SERVERS is set; this test needs ./build_test_server.sh")
+	}
+}
+
 func TestMain(m *testing.M) {
+	// The tests that talk to a real server need one built by
+	// ./build_test_server.sh, which not every machine can run. Setting
+	// this skips them, so the package's unit tests stay reachable
+	// without that infrastructure.
+	if os.Getenv("GOFTP_SKIP_SERVERS") != "" {
+		skipServers = true
+		os.Exit(m.Run())
+	}
 	pureCloser, err := startPureFTPD(pureAddrs, "ftpd/pure-ftpd")
 	ftpdAddrs = append(ftpdAddrs, pureAddrs...)
 

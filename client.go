@@ -149,6 +149,29 @@ type Config struct {
 	// hung connections.
 	DisableEPSV bool
 
+	// DialFunc, when set, is used to establish every TCP connection this
+	// client makes - control connections and data connections alike -
+	// in place of the package's own dialer.
+	//
+	// It exists for callers who need to see the connection itself rather
+	// than only what travels over it: counting bytes for transfer
+	// statistics, routing through a proxy or a tunnel, or handing back a
+	// connection that is not really a socket at all.
+	//
+	// Two things become the caller's responsibility when it is set,
+	// because the package can no longer do them:
+	//
+	//   - Timeout is not applied to the dial. Config.Timeout still
+	//     governs reads and writes on the returned connection; the dial
+	//     itself is timed however DialFunc chooses.
+	//   - For TLSImplicit mode the returned connection is wrapped in TLS
+	//     by this package, so DialFunc should return a plain connection.
+	//     A DialFunc that performs its own handshake and returns the TLS
+	//     connection will find it wrapped a second time.
+	//
+	// Leaving it nil keeps the previous behaviour exactly.
+	DialFunc func(network, address string) (net.Conn, error)
+
 	// For testing convenience.
 	stubResponses map[string]stubResponse
 }
@@ -371,13 +394,30 @@ func (c *Client) openConn(idx int, host string) (pconn *persistentConn, err erro
 
 	if c.config.TLSConfig != nil && c.config.TLSMode == TLSImplicit {
 		pconn.debug("opening TLS control connection to %s", host)
-		dialer := &net.Dialer{
-			Timeout: c.config.Timeout,
+		if c.config.DialFunc != nil {
+			// Handshake here rather than leaving it to the first read:
+			// tls.DialWithDialer does the same, and a caller reading
+			// the returned conn expects the negotiation to have either
+			// succeeded or failed by now.
+			var raw net.Conn
+			raw, err = c.config.DialFunc("tcp", host)
+			if err == nil {
+				tlsConn := tls.Client(raw, pconn.config.TLSConfig)
+				if err = tlsConn.Handshake(); err != nil {
+					raw.Close()
+				} else {
+					conn = tlsConn
+				}
+			}
+		} else {
+			dialer := &net.Dialer{
+				Timeout: c.config.Timeout,
+			}
+			conn, err = tls.DialWithDialer(dialer, "tcp", host, pconn.config.TLSConfig)
 		}
-		conn, err = tls.DialWithDialer(dialer, "tcp", host, pconn.config.TLSConfig)
 	} else {
 		pconn.debug("opening control connection to %s", host)
-		conn, err = net.DialTimeout("tcp", host, c.config.Timeout)
+		conn, err = c.config.dial("tcp", host)
 	}
 
 	var (
