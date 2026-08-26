@@ -429,12 +429,37 @@ func (pconn *persistentConn) prepareDataConn() (func() (net.Conn, error), error)
 			return nil, ftpError{err: netErr, temporary: isTemporary}
 		}
 
+		var tlsConn *tls.Conn
 		if pconn.config.TLSConfig != nil {
 			pconn.debug("upgrading data connection to TLS")
-			dc = tls.Client(dc, pconn.config.TLSConfig)
+			tlsConn = tls.Client(dc, pconn.config.TLSConfig)
+			dc = tlsConn
 		}
 
 		return func() (net.Conn, error) {
+			// Handshake here, in the getter, rather than above.
+			//
+			// crypto/tls handshakes lazily, on the first Read or Write.
+			// A transfer that moves no bytes never triggers one, so the
+			// server is handed a plain TCP connection that opens and
+			// closes without ever speaking TLS — it rejects that and
+			// drops the control connection, and the caller sees "error
+			// reading response: EOF" from a store that was otherwise
+			// perfectly valid. Storing an empty file over TLS is the
+			// case that hits it.
+			//
+			// It has to be the getter and not the line above: this
+			// function runs after the transfer command has been sent and
+			// acknowledged, and the server does not begin the data
+			// channel's handshake until then. Handshaking earlier waits
+			// for a server that is itself waiting for the command.
+			if tlsConn != nil {
+				if err := tlsConn.Handshake(); err != nil {
+					tlsConn.Close()
+					return nil, ftpError{err: err}
+				}
+			}
+
 			pconn.dataConn = &dataConn{
 				Conn:    dc,
 				Timeout: pconn.config.Timeout,
