@@ -230,10 +230,15 @@ func (c *Client) dataStringList(f string, args ...interface{}) ([]string, error)
 
 	defer c.returnConn(pconn)
 
-	dcGetter, err := pconn.prepareDataConn()
+	dcGetter, abort, err := pconn.prepareDataConn()
 	if err != nil {
 		return nil, err
 	}
+
+	// Same as in transfer: the connection is claimed before the command
+	// is sent, so a command the server refuses would otherwise leave it
+	// open with nothing left to close it.
+	defer abort()
 
 	cmd := fmt.Sprintf(f, args...)
 

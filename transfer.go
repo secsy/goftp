@@ -158,11 +158,18 @@ func (c *Client) transferFromOffset(path string, dest io.Writer, src io.Reader, 
 		}
 	}
 
-	connGetter, err := pconn.prepareDataConn()
+	connGetter, abort, err := pconn.prepareDataConn()
 	if err != nil {
 		pconn.debug("error preparing data connection: %s", err)
 		return 0, err
 	}
+
+	// The data connection is open from here, but nothing closes it until
+	// the getter below has handed it over. A transfer command the server
+	// refuses returns in between, so without this the connection is lost
+	// with no reference left to close it — one descriptor per failed
+	// transfer, on both ends.
+	defer abort()
 
 	var cmd string
 	if dest == nil && src != nil {

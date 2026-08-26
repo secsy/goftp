@@ -74,7 +74,13 @@ func (pconn *persistentConn) SendCommand(f string, args ...interface{}) (int, st
 }
 
 func (pconn *persistentConn) PrepareDataConn() (func() (net.Conn, error), error) {
-	return pconn.prepareDataConn()
+	// The abort is dropped rather than exposed, because widening this
+	// interface would break every implementation of it. A caller driving
+	// the protocol by hand owns the connection either way: if it sends a
+	// command the server refuses and never invokes the getter, it must
+	// Close the RawConn to release what was opened.
+	getter, _, err := pconn.prepareDataConn()
+	return getter, err
 }
 
 func (pconn *persistentConn) ReadResponse() (int, string, error) {
@@ -376,14 +382,35 @@ func (c *dataConn) Write(buf []byte) (int, error) {
 	return c.Conn.Write(buf)
 }
 
-func (pconn *persistentConn) prepareDataConn() (func() (net.Conn, error), error) {
+// prepareDataConn opens whatever the data channel needs and returns a
+// getter for the connection plus an abort to release it.
+//
+// The abort exists because the resource is claimed here, before the
+// transfer command is sent — so a command the server refuses leaves it
+// open with nothing holding a reference to it. Callers must defer the
+// abort; it is a no-op once the getter has handed the connection over,
+// since the caller closes it from then on.
+func (pconn *persistentConn) prepareDataConn() (func() (net.Conn, error), func(), error) {
 	if pconn.config.ActiveTransfers {
 		listener, err := pconn.listenActive()
 		if err != nil {
-			return nil, err
+			return nil, nil, err
+		}
+
+		var handedOver bool
+
+		abort := func() {
+			if handedOver {
+				return
+			}
+			pconn.debug("releasing the unused active-mode listener")
+			if err := listener.Close(); err != nil {
+				pconn.debug("error closing data connection listener: %s", err)
+			}
 		}
 
 		return func() (net.Conn, error) {
+			handedOver = true
 			defer func() {
 				if err := listener.Close(); err != nil {
 					pconn.debug("error closing data connection listener: %s", err)
@@ -411,11 +438,11 @@ func (pconn *persistentConn) prepareDataConn() (func() (net.Conn, error), error)
 				Timeout: pconn.config.Timeout,
 			}
 			return pconn.dataConn, nil
-		}, nil
+		}, abort, nil
 	} else {
 		host, err := pconn.requestPassive()
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 
 		pconn.debug("opening data connection to %s", host)
@@ -426,7 +453,19 @@ func (pconn *persistentConn) prepareDataConn() (func() (net.Conn, error), error)
 			if ne, ok := netErr.(net.Error); ok {
 				isTemporary = ne.Temporary()
 			}
-			return nil, ftpError{err: netErr, temporary: isTemporary}
+			return nil, nil, ftpError{err: netErr, temporary: isTemporary}
+		}
+
+		var handedOver bool
+
+		abort := func() {
+			if handedOver {
+				return
+			}
+			pconn.debug("releasing the unused data connection")
+			if err := dc.Close(); err != nil {
+				pconn.debug("error closing unused data connection: %s", err)
+			}
 		}
 
 		if pconn.config.TLSConfig != nil {
@@ -435,12 +474,14 @@ func (pconn *persistentConn) prepareDataConn() (func() (net.Conn, error), error)
 		}
 
 		return func() (net.Conn, error) {
+			handedOver = true
+
 			pconn.dataConn = &dataConn{
 				Conn:    dc,
 				Timeout: pconn.config.Timeout,
 			}
 			return pconn.dataConn, nil
-		}, nil
+		}, abort, nil
 	}
 }
 
