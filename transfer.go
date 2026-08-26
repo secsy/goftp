@@ -17,15 +17,51 @@ import (
 // Retrieve will also verify the file's size after the transfer if the
 // server supports the SIZE command.
 func (c *Client) Retrieve(path string, dest io.Writer) error {
+	return c.RetrieveFrom(path, dest, 0)
+}
+
+// RetrieveFrom copies the contents of file "path" from "offset" onwards
+// into "dest", using the same resumption as Retrieve for the remainder.
+//
+// An offset equal to the file's size is not an error: it copies nothing,
+// which is the honest answer for a caller resuming a transfer that had
+// already finished. An offset beyond the size is a mistake worth
+// reporting rather than answering with silence.
+//
+// The server must support resuming stream transfers, which is the same
+// requirement Retrieve has for resuming after a failure. Where Retrieve
+// merely loses the ability to retry, RetrieveFrom cannot start at all —
+// so it says so instead of quietly sending the whole file.
+func (c *Client) RetrieveFrom(path string, dest io.Writer, offset int64) error {
+	if offset < 0 {
+		return ftpError{err: fmt.Errorf("offset %d is negative", offset)}
+	}
+
 	// fetch file size to check against how much we transferred
 	size, err := c.size(path)
 	if err != nil {
 		return err
 	}
 
+	if size != -1 && offset > size {
+		return ftpError{err: fmt.Errorf(
+			"offset %d is past the end of %q, which is %d bytes", offset, path, size)}
+	}
+
 	canResume := c.canResume()
 
-	var bytesSoFar int64
+	if offset > 0 && !canResume {
+		return ftpError{err: fmt.Errorf(
+			"cannot start at offset %d: the server does not support REST STREAM", offset)}
+	}
+
+	// Nothing to copy, and asking the server for nothing invites a
+	// server-specific answer to a question with an obvious one.
+	if offset == size {
+		return nil
+	}
+
+	bytesSoFar := offset
 	for {
 		n, err := c.transferFromOffset(path, dest, nil, bytesSoFar)
 
@@ -43,6 +79,9 @@ func (c *Client) Retrieve(path string, dest io.Writer) error {
 		}
 	}
 
+	// bytesSoFar counts from the start of the file, not from the offset,
+	// because that is what REST resumes against — so the total to expect
+	// is still the file's size.
 	if size != -1 && bytesSoFar != size {
 		return ftpError{
 			err:       fmt.Errorf("expected %d bytes, got %d", size, bytesSoFar),
