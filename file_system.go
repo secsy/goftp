@@ -332,6 +332,12 @@ func parseLIST(entry string, loc *time.Location, skipSelfParent bool) (os.FileIn
 
 	matches := lsRegex.FindStringSubmatch(entry)
 	if len(matches) == 0 {
+		// Microsoft's FTP Service does not send ls-style listings. Try
+		// its format before giving up, or ReadDir fails outright on
+		// every IIS server.
+		if info, err := parseDOSLIST(entry, loc); info != nil || err != nil {
+			return info, err
+		}
 		return nil, ftpError{err: fmt.Errorf(`failed parsing LIST entry: %s`, entry)}
 	}
 
@@ -392,6 +398,67 @@ func parseLIST(entry string, loc *time.Location, skipSelfParent bool) (os.FileIn
 	}
 
 	return info, nil
+}
+
+// Microsoft's FTP Service sends a DOS-style listing rather than an
+// ls-style one:
+//
+//	10-09-20  09:36PM       <DIR>          aspnet_client
+//	10-16-20  05:20PM                 6989 Biography.html
+//	03-02-2023  03:15PM       <DIR>          Archived Tracking
+//
+// No permission bits, no owner, no link count. A directory is marked
+// <DIR> in place of a size, the year may be two digits or four, and the
+// name runs to the end of the line so it may contain spaces.
+var dosListRegex = regexp.MustCompile(
+	`^\s*(\d{2}-\d{2}-(?:\d{4}|\d{2}))\s+(\d{1,2}:\d{2}(?:AM|PM))\s+(?:(<DIR>)|(\d+))\s+(.+?)\s*$`)
+
+// parseDOSLIST reads one line of a Microsoft FTP Service listing.
+//
+// Returns (nil, nil) when the line is not in that format at all, so the
+// caller can report the failure it was already going to report rather
+// than replacing it with a less accurate one.
+func parseDOSLIST(entry string, loc *time.Location) (os.FileInfo, error) {
+	matches := dosListRegex.FindStringSubmatch(entry)
+	if matches == nil {
+		return nil, nil
+	}
+
+	// The layout follows the year's width rather than a pivot of our
+	// own: time.Parse already decides what a two-digit year means, and
+	// disagreeing with it here would be a second rule to maintain.
+	layout := "01-02-06 3:04PM"
+	if len(matches[1]) == 10 {
+		layout = "01-02-2006 3:04PM"
+	}
+
+	mtime, err := time.ParseInLocation(layout, matches[1]+" "+matches[2], loc)
+	if err != nil {
+		return nil, ftpError{err: fmt.Errorf(`failed parsing LIST entry's time: %s (%s)`, err, entry)}
+	}
+
+	var (
+		mode os.FileMode
+		size uint64
+	)
+	if matches[3] != "" {
+		mode |= os.ModeDir
+		// A directory has no size here. Reporting one would be a number
+		// the server never sent.
+	} else {
+		size, err = strconv.ParseUint(matches[4], 10, 64)
+		if err != nil {
+			return nil, ftpError{err: fmt.Errorf(`failed parsing LIST entry's size: %s (%s)`, err, entry)}
+		}
+	}
+
+	return &ftpFile{
+		name:  matches[5],
+		mode:  mode,
+		mtime: mtime,
+		raw:   entry,
+		size:  int64(size),
+	}, nil
 }
 
 // an entry looks something like this:
