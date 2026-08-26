@@ -60,6 +60,11 @@ type persistentConn struct {
 	// map of ftp features available on server
 	features map[string]string
 
+	// Shared with every connection this client opens, so a data
+	// connection can resume the TLS session its control connection
+	// established. Servers commonly require exactly that.
+	sessionCache tls.ClientSessionCache
+
 	// remember EPSV support
 	epsvNotSupported bool
 
@@ -402,7 +407,7 @@ func (pconn *persistentConn) prepareDataConn() (func() (net.Conn, error), error)
 			}
 
 			if pconn.config.TLSConfig != nil {
-				dc = tls.Server(dc, pconn.config.TLSConfig)
+				dc = tls.Server(dc, pconn.dataChannelTLSConfig())
 				pconn.debug("upgraded active connection to TLS")
 			}
 
@@ -431,7 +436,7 @@ func (pconn *persistentConn) prepareDataConn() (func() (net.Conn, error), error)
 
 		if pconn.config.TLSConfig != nil {
 			pconn.debug("upgrading data connection to TLS")
-			dc = tls.Client(dc, pconn.config.TLSConfig)
+			dc = tls.Client(dc, pconn.dataChannelTLSConfig())
 		}
 
 		return func() (net.Conn, error) {
@@ -517,13 +522,64 @@ func (pconn *persistentConn) setType(t string) error {
 	return err
 }
 
+// dataChannelTLSConfig returns the TLS config to use for this
+// connection's control and data channels.
+//
+// It exists to make session resumption possible at all. Servers commonly
+// require the data connection to resume the control connection's TLS
+// session — it is proftpd's default, and vsftpd's require_ssl_reuse —
+// and reject one that does not:
+//
+//	425-Unable to build data connection: Operation not permitted
+//	522-SSL connection failed; session reuse required
+//
+// Two things have to be true for crypto/tls to resume, and setting
+// ClientSessionCache alone gives only the first:
+//
+//   - there must be a cache, which is why one is installed when the
+//     caller has not supplied one;
+//   - the cache key must match, and when ServerName is empty crypto/tls
+//     keys by *address* — which includes the port. The data connection
+//     is on a different port, so it never finds the control connection's
+//     session and resumption silently does not happen. Setting
+//     ServerName to the host makes both channels agree on one key.
+//
+// The config is cloned rather than modified, because it belongs to the
+// caller and may be shared with connections this package knows nothing
+// about.
+func (pconn *persistentConn) dataChannelTLSConfig() *tls.Config {
+	if pconn.config.TLSConfig == nil {
+		return nil
+	}
+
+	cfg := pconn.config.TLSConfig.Clone()
+
+	if cfg.ClientSessionCache == nil {
+		cfg.ClientSessionCache = pconn.sessionCache
+	}
+
+	if cfg.ServerName == "" {
+		if host, _, err := net.SplitHostPort(pconn.host); err == nil {
+			cfg.ServerName = host
+		} else {
+			cfg.ServerName = pconn.host
+		}
+		// Naming the server without being asked to would start verifying
+		// a certificate the caller did not ask to have verified, so the
+		// name is used for the cache key only.
+		cfg.InsecureSkipVerify = pconn.config.TLSConfig.InsecureSkipVerify
+	}
+
+	return cfg
+}
+
 func (pconn *persistentConn) logInTLS() error {
 	err := pconn.sendCommandExpected(replyAuthOkayNoDataNeeded, "AUTH TLS")
 	if err != nil {
 		return err
 	}
 
-	pconn.setControlConn(tls.Client(pconn.controlConn, pconn.config.TLSConfig))
+	pconn.setControlConn(tls.Client(pconn.controlConn, pconn.dataChannelTLSConfig()))
 
 	err = pconn.logIn()
 	if err != nil {

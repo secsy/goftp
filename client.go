@@ -168,6 +168,10 @@ type Client struct {
 	mu              sync.Mutex
 	t0              time.Time
 	closed          bool
+	// TLS session cache shared by every connection, so a data channel
+	// can resume its control channel's session. See
+	// persistentConn.dataChannelTLSConfig.
+	sessionCache tls.ClientSessionCache
 }
 
 // Construct and return a new client Conn, setting default config
@@ -194,6 +198,16 @@ func newClient(config Config, hosts []string) *Client {
 		config.ServerLocation = time.UTC
 	}
 
+	// One cache for the whole client, so a data connection can resume
+	// the session its control connection established — and so
+	// connections reused from the pool keep resuming rather than
+	// renegotiating from scratch.
+	//
+	// Installed even when the caller supplied their own TLSConfig
+	// without a cache, because a config without one cannot resume and
+	// resumption is what most servers require of the data channel.
+	sessionCache := tls.NewLRUClientSessionCache(0)
+
 	if config.ActiveListenAddr == "" {
 		config.ActiveListenAddr = ":0"
 	}
@@ -205,6 +219,7 @@ func newClient(config Config, hosts []string) *Client {
 		hosts:           hosts,
 		allCons:         make(map[int]*persistentConn),
 		numConnsPerHost: make(map[string]int),
+		sessionCache:    sessionCache,
 	}
 }
 
@@ -359,6 +374,7 @@ func (c *Client) OpenRawConn() (RawConn, error) {
 func (c *Client) openConn(idx int, host string) (pconn *persistentConn, err error) {
 	pconn = &persistentConn{
 		idx:              idx,
+		sessionCache:     c.sessionCache,
 		features:         make(map[string]string),
 		config:           c.config,
 		t0:               c.t0,
