@@ -321,6 +321,9 @@ func (f *ftpFile) Sys() interface{} {
 	return f.raw
 }
 
+// How LIST separates a symlink's name from what it points at.
+const symlinkSeparator = " -> "
+
 var lsRegex = regexp.MustCompile(`^\s*(\S)(\S{3})(\S{3})(\S{3})(?:\s+\S+){3}\s+(\d+)\s+(\w+\s+\d+)\s+([\d:]+)\s+(.+)$`)
 
 // total 404456
@@ -383,8 +386,29 @@ func parseLIST(entry string, loc *time.Location, skipSelfParent bool) (os.FileIn
 		return nil, ftpError{err: fmt.Errorf(`failed parsing LIST entry's mtime: %s (%s)`, err, entry)}
 	}
 
+	// A symlink is rendered "name -> target", so the captured field holds
+	// both and the entry's name is the left side.
+	//
+	// Taking the whole field gave a name with the arrow embedded and,
+	// when the target contained a slash, filepath.Base then returned the
+	// *target's* basename — so a link "config" pointing at
+	// "etc/real.conf" was reported as "real.conf". The second is the
+	// dangerous one: nothing about the result says it is not a real
+	// entry.
+	//
+	// The split is on the first separator. A filename may legitimately
+	// contain " -> ", which makes this ambiguous — but the ambiguity is
+	// in LIST's own output, which renders both cases identically, so no
+	// reader can do better.
+	name := matches[8]
+	if mode&os.ModeSymlink != 0 {
+		if i := strings.Index(name, symlinkSeparator); i >= 0 {
+			name = name[:i]
+		}
+	}
+
 	info := &ftpFile{
-		name:  filepath.Base(matches[8]),
+		name:  filepath.Base(name),
 		mode:  mode,
 		mtime: mtime,
 		raw:   entry,
