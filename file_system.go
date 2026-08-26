@@ -170,16 +170,7 @@ func (c *Client) Stat(path string) (os.FileInfo, error) {
 	lines, err := c.controlStringList("MLST %s", path)
 	if err != nil {
 		if commandNotSupporterdError(err) {
-			lines, err = c.dataStringList("LIST %s", path)
-			if err != nil {
-				return nil, err
-			}
-
-			if len(lines) != 1 {
-				return nil, ftpError{err: fmt.Errorf("unexpected LIST response: %v", lines)}
-			}
-
-			return parseLIST(lines[0], c.config.ServerLocation, false)
+			return c.statViaLIST(path)
 		}
 		return nil, err
 	}
@@ -189,6 +180,58 @@ func (c *Client) Stat(path string) (os.FileInfo, error) {
 	}
 
 	return parseMLST(strings.TrimLeft(lines[1], " "), false)
+}
+
+// statViaLIST describes path on a server that does not implement MLST.
+//
+// A plain "LIST <path>" cannot do this. Given a directory, LIST returns
+// that directory's *contents*, so the caller was handed a description of
+// something inside the directory rather than of the directory — and it
+// only looked like a failure when the count happened not to be one. A
+// directory holding exactly one entry returned that entry, silently, as
+// though Stat had succeeded.
+//
+// Two ways to ask about the entry itself, tried in that order because
+// the first costs one round trip and the second costs two.
+func (c *Client) statViaLIST(path string) (os.FileInfo, error) {
+	want := filepath.Base(strings.TrimRight(path, "/"))
+
+	// "LIST -d" is ls's flag for "the entry, not what is inside it", and
+	// unix-derived servers pass it through — proftpd and pure-ftpd both
+	// answer with exactly the one entry.
+	//
+	// The name is checked rather than trusted. A server that does not
+	// understand the flag may list the contents anyway, and if there is
+	// one entry that is indistinguishable from success by count alone.
+	// It is precisely the case that used to go unnoticed.
+	if lines, err := c.dataStringList("LIST -d %s", path); err == nil && len(lines) == 1 {
+		info, perr := parseLIST(lines[0], c.config.ServerLocation, false)
+		if perr == nil && info != nil && info.Name() == want {
+			return info, nil
+		}
+	}
+
+	// Servers that reject ls flags — IIS among them — need asking a
+	// different way: list the parent and find the entry by name.
+	parent := filepath.Dir(strings.TrimRight(path, "/"))
+	if want == "" || want == "." || want == "/" || parent == path {
+		// The root has no parent to list, and no name to match in one.
+		return nil, ftpError{err: fmt.Errorf(
+			"cannot stat %q without MLST: the server did not describe it and it has no parent to search",
+			path)}
+	}
+
+	entries, err := c.ReadDir(parent)
+	if err != nil {
+		return nil, err
+	}
+	for _, entry := range entries {
+		if entry.Name() == want {
+			return entry, nil
+		}
+	}
+
+	return nil, ftpError{err: fmt.Errorf("%q not found in %q", want, parent)}
 }
 
 func extractDirName(msg string) (string, error) {
