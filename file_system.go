@@ -188,7 +188,20 @@ func (c *Client) Stat(path string) (os.FileInfo, error) {
 		return nil, ftpError{err: fmt.Errorf("unexpected MLST response: %v", lines)}
 	}
 
-	return parseMLST(strings.TrimLeft(lines[1], " "), false)
+	info, err := parseMLST(strings.TrimLeft(lines[1], " "), false)
+	if err != nil {
+		return nil, err
+	}
+	if info == nil {
+		// The parser reports a line that is not an entry by returning
+		// nothing, which is right for a listing — ReadDir skips it — and
+		// wrong here, where the one line was supposed to be the answer.
+		// Without this, Stat would hand back a nil FileInfo and a nil
+		// error, and a caller that checked the error would dereference
+		// nothing.
+		return nil, ftpError{err: fmt.Errorf("MLST reply described nothing: %v", lines)}
+	}
+	return info, nil
 }
 
 func extractDirName(msg string) (string, error) {
@@ -397,6 +410,17 @@ func parseLIST(entry string, loc *time.Location, skipSelfParent bool) (os.FileIn
 // an entry looks something like this:
 // type=file;size=12;modify=20150216084148;UNIX.mode=0644;unique=1000004g1187ec7; lorem.txt
 func parseMLST(entry string, skipSelfParent bool) (os.FileInfo, error) {
+	// Some servers end an MLSD listing with a blank line. It is not an
+	// entry, and failing on it fails the whole listing — so a directory
+	// that is perfectly readable comes back as a parse error.
+	//
+	// parseLIST already skips its own non-entry line ("total 404456"),
+	// so the two now agree that a line which is not an entry is not an
+	// error either.
+	if strings.TrimSpace(entry) == "" {
+		return nil, nil
+	}
+
 	parseError := ftpError{err: fmt.Errorf(`failed parsing MLST entry: %s`, entry)}
 	incompleteError := ftpError{err: fmt.Errorf(`MLST entry incomplete: %s`, entry)}
 
