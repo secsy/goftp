@@ -68,7 +68,18 @@ func (c *Client) Mkdir(path string) (string, error) {
 
 	dir, err := extractDirName(msg)
 	if err != nil {
-		return "", err
+		// The directory was created: the server said so with 257 above.
+		// RFC 959 asks it to echo the pathname in quotes as well, and
+		// not every server does — proftpd and several embedded servers
+		// answer a bare "257 Directory created".
+		//
+		// A reply without a name is a success whose name cannot be
+		// read, not a failure, so answer with the path that was asked
+		// for rather than turning a created directory into an error.
+		//
+		// Getwd, the other caller of extractDirName, is different:
+		// there the pathname *is* the answer, so it still fails.
+		return path, nil
 	}
 
 	return dir, nil

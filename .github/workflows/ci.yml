@@ -1,0 +1,71 @@
+# CI for goftp.
+#
+# Replaces a .travis.yml that tested Go 1.10 and "tip", and installed its
+# FTP servers by compiling two 2015 tarballs fetched over plain FTP. The
+# servers are containers now (see test-servers/), so what CI tests
+# against is what a developer tests against.
+
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: test (go ${{ matrix.go }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # The floor this library declares in go.mod, and a current
+        # release. Both are pinned: "stable" moves on its own, and a
+        # toolchain that changes without an edit here makes a green build
+        # yesterday and a red one today with no commit in between.
+        go: ["1.21", "1.25"]
+    steps:
+      - uses: actions/checkout@v4
+
+      # The suite runs inside a container on the servers' network,
+      # because FTP transfers are negotiated by address and a server
+      # behind published ports names one the client cannot reach.
+      - name: test
+        run: GO_VERSION=${{ matrix.go }} ./scripts/test-servers.sh test -v
+
+      - name: server logs on failure
+        if: failure()
+        run: ./scripts/test-servers.sh logs
+
+  vet:
+    name: vet and gofmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "These files need gofmt:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      # Vet needs to compile the tests, which needs no servers — the
+      # server-dependent ones skip themselves.
+      - name: go vet
+        run: go vet ./...
+
+      # Proof that the tests which need no server can run without one.
+      # It is easy to add a test that quietly depends on a live server,
+      # and this is where that shows up.
+      - name: tests that need no server
+        run: GOFTP_SKIP_SERVERS=1 go test ./...

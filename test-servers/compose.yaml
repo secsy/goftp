@@ -1,0 +1,112 @@
+# The FTP servers the test suite talks to.
+#
+#   ./scripts/test-servers.sh test     run the suite in a container
+#   ./scripts/test-servers.sh up        just the servers
+#   ./scripts/test-servers.sh down      stop everything
+#
+# The suite runs in a container too, on this same network, and that is
+# not incidental. FTP transfers are negotiated by address: a passive
+# transfer has the server tell the client where to connect, and an
+# active one has the server connect back. A server behind published
+# ports names an address the host cannot route to, so passive transfers
+# time out and active ones are refused outright. Sharing a network makes
+# the address the server names the address the client can reach.
+#
+# The ports are published anyway, so `go test` from the host still works
+# for everything that is not a data transfer.
+#
+# All three share one image and one testroot, because the tests treat
+# them as views onto the same filesystem — a file written through one is
+# expected to be visible through another.
+
+name: goftp-test-servers
+
+x-server: &server
+  build:
+    context: .
+    dockerfile: Dockerfile
+  image: goftp-test-servers:latest
+  volumes:
+    # The suite writes into this and expects to see the tree the
+    # repository ships. Bound rather than copied so a test that leaves
+    # something behind is visible.
+    - ../testroot:/testroot
+  environment:
+    # pure-ftpd built --with-nonroot takes its anonymous root from here.
+    # The implicit-TLS test logs in anonymously, so without this that
+    # login lands in pure-ftpd's compiled-in /ftp and fails to chdir.
+    FTP_ANON_DIR: /testroot
+  restart: "no"
+
+services:
+  # Explicit TLS: connect in the clear, then AUTH TLS.
+  pure-ftpd:
+    <<: *server
+    command:
+      - /usr/local/bin/pure-ftpd
+      - --bind=0.0.0.0,2121
+      - --login=puredb:/etc/pureftpd.pdb
+      - --tls=1
+      - --passiveportrange=30000:30099
+      - --dontresolve
+      - --nochmod
+    ports:
+      - "127.0.0.1:2121:2121"
+      - "127.0.0.1:30000-30099:30000-30099"
+
+  # Implicit TLS: the connection is TLS from its first byte, which is
+  # why this binary exists separately at all.
+  pure-ftpd-implicittls:
+    <<: *server
+    command:
+      - /usr/local/bin/pure-ftpd-implicittls
+      - --bind=0.0.0.0,2122
+      - --login=puredb:/etc/pureftpd.pdb
+      - --tls=3
+      - --passiveportrange=30100:30199
+      - --dontresolve
+      - --nochmod
+    ports:
+      - "127.0.0.1:2122:2122"
+      - "127.0.0.1:30100-30199:30100-30199"
+
+  # A second implementation, because a client that only ever meets one
+  # server learns that server's habits rather than the protocol's.
+  proftpd:
+    <<: *server
+    command: ["/usr/sbin/proftpd", "--nodaemon", "--config", "/etc/proftpd/proftpd.conf"]
+    ports:
+      - "127.0.0.1:2124:2124"
+      - "127.0.0.1:30200-30299:30200-30299"
+
+  # The suite itself, on the same network as the servers.
+  #
+  # The Go version comes from go.mod via the build arg, so the container
+  # and the repository cannot disagree about which toolchain this is
+  # tested with.
+  tests:
+    image: golang:${GO_VERSION:-1.25}
+    working_dir: /src
+    volumes:
+      - ../:/src
+      # Keep the module and build caches out of the source tree and
+      # across runs, or every invocation re-downloads the world.
+      - gomod:/go/pkg/mod
+      - gobuild:/root/.cache/go-build
+    environment:
+      # Container names, not forwarded ports: see the note at the top.
+      GOFTP_PURE_ADDR: pure-ftpd:2121
+      GOFTP_IMPLICIT_TLS_ADDR: pure-ftpd-implicittls:2122
+      GOFTP_PRO_ADDR: proftpd:2124
+    depends_on:
+      - pure-ftpd
+      - pure-ftpd-implicittls
+      - proftpd
+    command: ["go", "test", "./..."]
+    profiles:
+      # Only runs when asked for, so `up` brings up servers alone.
+      - test
+
+volumes:
+  gomod:
+  gobuild:
