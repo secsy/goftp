@@ -480,3 +480,45 @@ func TestGetwd(t *testing.T) {
 		}
 	}
 }
+
+// A server that reports success without echoing the path is reporting
+// success. Turning that into an error means callers see a failure for a
+// directory that exists, and retrying tells them it already does.
+func TestMkdirAcceptsReplyWithoutAName(t *testing.T) {
+	c, err := DialConfig(goftpConfig, ftpdAddrs[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	// Stub the reply to the shape RFC 959 leaves optional.
+	c.config.stubResponses = map[string]stubResponse{
+		"MKD unnamed": {code: replyDirCreated, msg: "Directory created"},
+	}
+
+	dir, err := c.Mkdir("unnamed")
+	if err != nil {
+		t.Fatalf("Mkdir returned %v for a 257 reply carrying no path", err)
+	}
+	if dir != "unnamed" {
+		t.Errorf("Mkdir returned %q, want the path it was asked for", dir)
+	}
+}
+
+// The parser itself must still reject a reply with no quoted path —
+// Getwd depends on that, because there the pathname is the whole answer.
+// Mkdir is the caller that can carry on without one.
+func TestExtractDirNameRejectsAReplyWithoutAName(t *testing.T) {
+	for _, msg := range []string{
+		"Directory created",
+		`unbalanced "quote`,
+		"",
+	} {
+		if name, err := extractDirName(msg); err == nil {
+			t.Errorf("extractDirName(%q) returned %q, want an error", msg, name)
+		}
+	}
+	if name, err := extractDirName(`"/some/dir" created`); err != nil || name != "/some/dir" {
+		t.Errorf(`extractDirName returned (%q, %v), want ("/some/dir", nil)`, name, err)
+	}
+}
