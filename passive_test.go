@@ -26,6 +26,11 @@ type pasvServer struct {
 
 func startPASVServer(t *testing.T) *pasvServer {
 	t.Helper()
+	if probe, err := net.Listen("tcp", "127.0.0.2:0"); err != nil {
+		t.Skipf("cannot listen on 127.0.0.2: %s", err)
+	} else {
+		probe.Close()
+	}
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -38,7 +43,7 @@ func startPASVServer(t *testing.T) *pasvServer {
 			if err != nil {
 				return
 			}
-			go s.serve(t, c)
+			go s.serve(c)
 		}
 	}()
 	return s
@@ -50,7 +55,7 @@ func (s *pasvServer) usedHost() string {
 	return s.via
 }
 
-func (s *pasvServer) serve(t *testing.T, c net.Conn) {
+func (s *pasvServer) serve(c net.Conn) {
 	defer c.Close()
 	r := bufio.NewReader(c)
 	reply := func(format string, args ...interface{}) { fmt.Fprintf(c, format+"\r\n", args...) }
@@ -87,8 +92,8 @@ func (s *pasvServer) serve(t *testing.T, c net.Conn) {
 			announced, err := net.Listen("tcp", fmt.Sprintf("127.0.0.2:%d", port))
 			if err != nil {
 				control.Close()
-				t.Skipf("cannot listen on 127.0.0.2: %s", err)
-				return
+				reply("425 no data connection")
+				continue
 			}
 			data = []net.Listener{control, announced}
 			reply("227 Entering Passive Mode (127,0,0,2,%d,%d)", port>>8, port&0xff)
