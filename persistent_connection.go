@@ -358,6 +358,17 @@ PASV:
 		port |= portOctet << (byte(1-i) * 8)
 	}
 
+	if pconn.config.IgnorePASVHost {
+		remoteHost, _, err = net.SplitHostPort(pconn.controlConn.RemoteAddr().String())
+		if err != nil {
+			return "", ftpError{err: fmt.Errorf("determining the remote host: %s", err)}
+		}
+		if remoteHost != ip.String() {
+			pconn.debug("ignoring PASV host %s, using %s", ip, remoteHost)
+		}
+		return net.JoinHostPort(remoteHost, strconv.Itoa(port)), nil
+	}
+
 	return net.JoinHostPort(ip.String(), strconv.Itoa(port)), nil
 }
 

@@ -32,6 +32,12 @@ var (
 )
 
 func TestMain(m *testing.M) {
+	// Tests that bring their own server need none of the real ones, which
+	// have to be compiled with build_test_server.sh first.
+	if os.Getenv("GOFTP_SKIP_SERVERS") != "" {
+		os.Exit(m.Run())
+	}
+
 	pureCloser, err := startPureFTPD(pureAddrs, "ftpd/pure-ftpd")
 	ftpdAddrs = append(ftpdAddrs, pureAddrs...)
 
