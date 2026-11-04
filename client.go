@@ -149,6 +149,12 @@ type Config struct {
 	// hung connections.
 	DisableEPSV bool
 
+	// IgnorePASVHost makes a passive data connection go to the host of the
+	// control connection instead of the host in the server's PASV reply, as
+	// EPSV already does. A server that announces a private address (behind
+	// NAT) or another host altogether then cannot misdirect the connection.
+	IgnorePASVHost bool
+
 	// For testing convenience.
 	stubResponses map[string]stubResponse
 }
